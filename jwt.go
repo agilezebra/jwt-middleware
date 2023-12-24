@@ -408,24 +408,29 @@ func (plugin *JWTPlugin) IsValidIssuer(issuer string) bool {
 
 // fetchKeys fetches the keys from well-known jwks endpoint for the given issuer and adds them to the key map.
 func (plugin *JWTPlugin) fetchKeys(issuer string) error {
-	url := issuer + ".well-known/jwks.json" // issuer has trailing slash
-	jwks, err := FetchJWKS(url)
+	configURL := issuer + ".well-known/openid-configuration" // issuer has trailing slash
+	config, err := FetchOpenIDConfiguration(configURL)
+	if err != nil {
+		return err
+	}
+	log.Printf("fetched openid-configuration from url:%s", configURL)
+	jwks, err := FetchJWKS(config.JWKSURI)
 	if err != nil {
 		return err
 	}
 	for keyID, key := range jwks {
-		log.Printf("fetched key:%s from url:%s", keyID, url)
+		log.Printf("fetched key:%s from url:%s", keyID, config.JWKSURI)
 		plugin.keys[keyID] = key
 	}
 
-	previous := plugin.issuerKeys[url]
+	previous := plugin.issuerKeys[config.JWKSURI]
 	for keyID := range previous {
 		if _, ok := jwks[keyID]; !ok {
-			log.Printf("key:%s dropped by url:%s", keyID, url)
+			log.Printf("key:%s dropped by url:%s", keyID, config.JWKSURI)
 			delete(plugin.keys, keyID)
 		}
 	}
-	plugin.issuerKeys[url] = jwks
+	plugin.issuerKeys[config.JWKSURI] = jwks
 
 	return nil
 }
