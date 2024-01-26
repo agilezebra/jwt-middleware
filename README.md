@@ -95,8 +95,6 @@ require:
 #### Dynamic Requirement
 E.g. for requiring that a token's audience matches the domain being accessed
 
-Will suceed when called on https://customer.example.com/example but fail on https://other.example.com/example
-Note that it is necessary to escape the Go template with to prevent traefik from attempting to interpret it.
 ```yaml
 require:
   aud: "{{`{{.Host}}`}}"
@@ -108,6 +106,8 @@ require:
   "aud": "customer.example.com"
 }
 ```
+Will suceed when called on https://customer.example.com/example but fail on https://other.example.com/example
+Note that it is necessary to escape the Go template with to prevent traefik from attempting to interpret it.
 
 #### Wildcard Claim
 Will suceed when called on https://customer.example.com/example
