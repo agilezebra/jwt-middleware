@@ -2,50 +2,36 @@
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
 
 name: Go
-
 on:
   push:
-    branches: [ "master" ]
+    branches: 
+      - master
   pull_request:
-    branches: [ "master" ]
-
+    branches:
+      - master
 jobs:
-
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.20'
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
 
-    - name: Vendor
-      run: |
-        go get .
-        go mod vendor
+      - name: Vendor
+        run: |
+          go get .
+          go mod vendor
 
-    - name: Test
-      run: go test -v -coverprofile=coverage.out
+      - name: Test
+        run: go test -v -coverprofile=coverage.out
 
-    - name: Badge
-      run: |
-        total=`go tool cover -func=coverage.out | grep total | grep -Eo '[0-9]+\.[0-9]+'`
-        if (( $(echo "$total <= 50" | bc -l) )) ; then
-          COLOR=red
-        elif (( $(echo "$total > 80" | bc -l) )); then
-          COLOR=green
-        else
-          COLOR=orange
-        fi
-        curl "https://img.shields.io/badge/Coverage-$total%25-$COLOR" > badge.svg
-
-    # - name: Copy
-    #   uses: prewk/s3-cp-action@v2
-    #   with:
-    #     aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    #     aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    #     source: './badge.svg'
-    #     dest: 's3://brainnwave.assets/badges/jwt/coverage.svg'
-    #     flags: --acl public-read 
+      - name: Sonar Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
