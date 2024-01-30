@@ -28,7 +28,7 @@ jobs:
           go mod vendor
 
       - name: Test
-        run: go test -v -coverprofile=coverage.out
+        run: go test -v -coverprofile=coverage.out -json > report.json
 
       - name: Sonar Scan
         uses: SonarSource/sonarcloud-github-action@master
