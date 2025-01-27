@@ -1007,13 +1007,26 @@ func TestServeHTTP(tester *testing.T) {
 			Config: `
 				issuers:
 					- "https://127.0.0.1/"
-				InsecureSkipVerify:
+				insecureSkipVerify:
 					- "127.0.0.1"
 				require:
 					aud: test`,
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
+		},
+		{
+			Name:   "infoToStdout",
+			Expect: http.StatusOK,
+			Config: `
+				issuers:
+					- https://example.com
+				infoToStdout: true
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
+			CookieName: "Authorization",
 		},
 	}
 
