@@ -38,6 +38,7 @@ type Config struct {
 	HeaderMap            map[string]string      `json:"headerMap,omitempty"`
 	ForwardToken         bool                   `json:"forwardToken,omitempty"`
 	Freshness            int64                  `json:"freshness,omitempty"`
+	InfoToStdout         bool                   `json:"infoToStdout,omitempty"`
 }
 
 // JWTPlugin is a traefik middleware plugin that authorizes access based on JWT tokens.
@@ -63,6 +64,7 @@ type JWTPlugin struct {
 	forwardToken         bool
 	freshness            int64
 	environment          map[string]string
+	infoToStdout         bool
 }
 
 // TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
@@ -127,6 +129,16 @@ func environment() map[string]string {
 	return variables
 }
 
+// logInfo logs to stdout if infoToStdout is true or to the default logger if not.
+func (plugin *JWTPlugin) logInfo(format string, v ...interface{}) {
+	// Note we tried to use a function pointer in the struct with a one-time setup but yaegi can't cope with it
+	if plugin.infoToStdout {
+		fmt.Printf(format, v...)
+	} else {
+		log.Printf(format, v...)
+	}
+}
+
 // New creates a new JWTPlugin.
 func New(_ context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	log.SetFlags(0)
@@ -157,6 +169,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		forwardToken:         config.ForwardToken,
 		freshness:            config.Freshness,
 		environment:          environment(),
+		infoToStdout:         config.InfoToStdout,
 	}
 
 	// If we have secrets, add them to the key cache
@@ -428,7 +441,7 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 
 				if looped {
 					if fetched {
-						log.Printf("key %s: fetched and no match", kid)
+						plugin.logInfo("key %s: fetched and no match", kid)
 					}
 					break
 				}
@@ -502,7 +515,7 @@ func (plugin *JWTPlugin) fetchKeys(issuer string) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("fetched openid-configuration from url:%s", configURL)
+	plugin.logInfo("fetched openid-configuration from url:%s", configURL)
 
 	url := config.JWKSURI
 	jwks, err := FetchJWKS(url, plugin.clientForURL(url))
@@ -510,7 +523,7 @@ func (plugin *JWTPlugin) fetchKeys(issuer string) error {
 		return err
 	}
 	for keyID, key := range jwks {
-		log.Printf("fetched key:%s from url:%s", keyID, url)
+		plugin.logInfo("fetched key:%s from url:%s", keyID, url)
 		plugin.keys[keyID] = key
 	}
 
@@ -534,7 +547,7 @@ func (plugin *JWTPlugin) isIssuedKey(keyID string) bool {
 func (plugin *JWTPlugin) purgeKeys() {
 	for keyID := range plugin.keys {
 		if !plugin.isIssuedKey(keyID) {
-			log.Printf("key:%s dropped", keyID)
+			plugin.logInfo("key:%s dropped", keyID)
 			delete(plugin.keys, keyID)
 		}
 	}
