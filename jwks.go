@@ -14,7 +14,7 @@ import (
 	"net/http"
 )
 
-// JSONWebKey  is a JSON web key returned by the JWKS request.
+// JSONWebKey is a JSON web key returned by the JWKS request.
 type JSONWebKey struct {
 	Kid string   `json:"kid"`
 	Kty string   `json:"kty"`
@@ -41,6 +41,7 @@ type JSONWebKeySet struct {
 	Keys []JSONWebKey `json:"keys"`
 }
 
+// FetchJWKS fetches the JSON web keys from the given URL and returns a map kid -> key.
 func FetchJWKS(url string, client *http.Client) (map[string]interface{}, error) {
 	response, err := client.Get(url)
 	if err != nil {
