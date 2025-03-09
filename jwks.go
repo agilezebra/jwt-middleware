@@ -10,8 +10,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/big"
 	"net/http"
+	"strings"
 )
 
 // JSONWebKey is a JSON web key returned by the JWKS request.
@@ -63,12 +65,14 @@ func FetchJWKS(url string, client *http.Client) (map[string]interface{}, error) 
 		switch jwk.Kty {
 		case "RSA":
 			{
-				nBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
+				nBytes, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(jwk.N, "="))
 				if err != nil {
+					log.Printf("error decoding N: %v for kid: %v", err, jwk.Kid)
 					break
 				}
-				eBytes, err := base64.RawURLEncoding.DecodeString(jwk.E)
+				eBytes, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(jwk.E, "="))
 				if err != nil {
+					log.Printf("error decoding E: %v for kid: %v", err, jwk.Kid)
 					break
 				}
 				keys[jwk.Kid] = &rsa.PublicKey{
