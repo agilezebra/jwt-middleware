@@ -1016,6 +1016,54 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
+			Name:   "RootCAs",
+			Expect: http.StatusOK,
+			Config: `
+				issuers:
+					- "https://127.0.0.1/"
+				rootCAs: |
+                    -----BEGIN CERTIFICATE-----
+                    MIIDJzCCAg+gAwIBAgIUDDYN8pGCpUC6tsqDW4meIXsmN04wDQYJKoZIhvcNAQEL
+                    BQAwIzELMAkGA1UEBhMCVUsxFDASBgNVBAoMC0FnaWxlIFplYnJhMB4XDTI1MDMx
+                    MTE0MTU1MloXDTM1MDMwOTE0MTU1MlowIzELMAkGA1UEBhMCVUsxFDASBgNVBAoM
+                    C0FnaWxlIFplYnJhMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA70Gs
+                    A3QEKB94Eqyt+V07qDNtykhlyOLSiGIRk1/Slr5B1mTY8Mt88gg8MFldyVukjze+
+                    /5GT/lZ3plMMiA7wnpJ683iWqMVOzQTtYlgcMknnrRJhHuDIGmcdakudXl484emE
+                    9iz+cWgl2cw1rb0rtNC1koQ90MohcTqW+5By0TUaulf80ZcJbGFG8LTqVKVJatET
+                    QedgrYR3tIR6VRtj7pnFZ1w9gZhpPL26mrMg3Wk3GHf/j48jebHVYbeuuSoBXJX8
+                    rGmfCtwzMWqyZvMU9MRP6KpPu20UIOuzau6JyD22RhlLSrX/1eI9Et0IMqEF/iM/
+                    EGpTGDJTeX3bJavzAQIDAQABo1MwUTAdBgNVHQ4EFgQUwR3igK8QvKXQ3JuGlYUc
+                    1jHwBqUwHwYDVR0jBBgwFoAUwR3igK8QvKXQ3JuGlYUc1jHwBqUwDwYDVR0TAQH/
+                    BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAoEgu6gQTf8Br0Id7Jp6Oht6XSG0o
+                    RtYJ4SwWD0U1acJpWKgtTkBA9cfGMYngFzUe9Xmxt1iBSCJtbQ/SQj5x0vcXsoR0
+                    zWBnihf3XERnJOyLWR7cUCfVYEu0xFCNrc1m5Wzj4IG2NJBTtiIiAdnTbEcBd7hk
+                    f7Vy+al187qn3HQcwdRfMatjFrrM92tHvd79VJsZcgj8Yl3QcgZFIQ2O+PtrXxLR
+                    2auMwVTxdRe0QUT6zvtZGf1niNH5s8DBVeDWqBArlC7M/HuLj6QOIMDEI2aC3yS1
+                    LT12fZ0MWBjfGc90EEJ9z4/CRUWMdtlOaLnXinyrvOH+SSTJD8xfwKqH6g==
+                    -----END CERTIFICATE-----
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "Bad RootCAs",
+			Expect: http.StatusOK,
+			Config: `
+				issuers:
+					- "https://127.0.0.1/"
+				rootCAs: |
+                    -----BEGIN CERTIFICATE-----
+                    bad
+                    -----END CERTIFICATE-----
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
+			HeaderName: "Authorization",
+		},
+		{
 			Name:   "infoToStdout",
 			Expect: http.StatusOK,
 			Config: `
@@ -1515,6 +1563,45 @@ func TestHostname(tester *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCreateDefaultClient(tester *testing.T) {
+	pems := []string{
+		`\
+-----BEGIN CERTIFICATE-----
+MIIDJzCCAg+gAwIBAgIUDDYN8pGCpUC6tsqDW4meIXsmN04wDQYJKoZIhvcNAQEL
+BQAwIzELMAkGA1UEBhMCVUsxFDASBgNVBAoMC0FnaWxlIFplYnJhMB4XDTI1MDMx
+MTE0MTU1MloXDTM1MDMwOTE0MTU1MlowIzELMAkGA1UEBhMCVUsxFDASBgNVBAoM
+C0FnaWxlIFplYnJhMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA70Gs
+A3QEKB94Eqyt+V07qDNtykhlyOLSiGIRk1/Slr5B1mTY8Mt88gg8MFldyVukjze+
+/5GT/lZ3plMMiA7wnpJ683iWqMVOzQTtYlgcMknnrRJhHuDIGmcdakudXl484emE
+9iz+cWgl2cw1rb0rtNC1koQ90MohcTqW+5By0TUaulf80ZcJbGFG8LTqVKVJatET
+QedgrYR3tIR6VRtj7pnFZ1w9gZhpPL26mrMg3Wk3GHf/j48jebHVYbeuuSoBXJX8
+rGmfCtwzMWqyZvMU9MRP6KpPu20UIOuzau6JyD22RhlLSrX/1eI9Et0IMqEF/iM/
+EGpTGDJTeX3bJavzAQIDAQABo1MwUTAdBgNVHQ4EFgQUwR3igK8QvKXQ3JuGlYUc
+1jHwBqUwHwYDVR0jBBgwFoAUwR3igK8QvKXQ3JuGlYUc1jHwBqUwDwYDVR0TAQH/
+BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAoEgu6gQTf8Br0Id7Jp6Oht6XSG0o
+RtYJ4SwWD0U1acJpWKgtTkBA9cfGMYngFzUe9Xmxt1iBSCJtbQ/SQj5x0vcXsoR0
+zWBnihf3XERnJOyLWR7cUCfVYEu0xFCNrc1m5Wzj4IG2NJBTtiIiAdnTbEcBd7hk
+f7Vy+al187qn3HQcwdRfMatjFrrM92tHvd79VJsZcgj8Yl3QcgZFIQ2O+PtrXxLR
+2auMwVTxdRe0QUT6zvtZGf1niNH5s8DBVeDWqBArlC7M/HuLj6QOIMDEI2aC3yS1
+LT12fZ0MWBjfGc90EEJ9z4/CRUWMdtlOaLnXinyrvOH+SSTJD8xfwKqH6g==
+-----END CERTIFICATE-----`,
+	}
+	tester.Run("Default", func(tester *testing.T) {
+		client := createDefaultClient(nil, true)
+		if client == nil {
+			tester.Error("client is nil")
+		}
+		client = createDefaultClient(pems, true)
+		if client == nil {
+			tester.Error("client is nil")
+		}
+		client = createDefaultClient(pems, false)
+		if client == nil {
+			tester.Error("client is nil")
+		}
+	})
 }
 
 func BenchmarkServeHTTP(benchmark *testing.B) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"html"
 	"html/template"
@@ -26,6 +27,7 @@ type Config struct {
 	Issuers              []string               `json:"issuers,omitempty"`
 	SkipPrefetch         bool                   `json:"skipPrefetch,omitempty"`
 	InsecureSkipVerify   []string               `json:"insecureSkipVerify,omitempty"`
+	RootCAs              []string               `json:"rootCAs,omitempty"`
 	Secret               string                 `json:"secret,omitempty"`
 	Secrets              map[string]string      `json:"secrets,omitempty"`
 	Require              map[string]interface{} `json:"require,omitempty"`
@@ -155,7 +157,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		secret:               secret,
 		issuers:              canonicalizeDomains(config.Issuers),
 		clients:              createClients(config.InsecureSkipVerify),
-		defaultClient:        &http.Client{},
+		defaultClient:        createDefaultClient(config.RootCAs, true),
 		require:              convertRequire(config.Require),
 		keys:                 make(map[string]interface{}),
 		issuerKeys:           make(map[string]map[string]interface{}),
@@ -567,6 +569,29 @@ func canonicalizeDomains(domains []string) []string {
 		domains[index] = canonicalizeDomain(domain)
 	}
 	return domains
+}
+
+// createDefaultClient returns an http.Client with the given root CAs, or a default client if no root CAs are provided.
+func createDefaultClient(pems []string, useSystemCertPool bool) *http.Client {
+	if pems == nil {
+		return &http.Client{}
+	}
+	certs, _ := x509.SystemCertPool()
+	if certs == nil || !useSystemCertPool {
+		// We don't plan an option to set useSystemCertPool=false but it helps with test coverage
+		certs = x509.NewCertPool()
+	}
+	for _, pem := range pems {
+		if !certs.AppendCertsFromPEM([]byte(pem)) {
+			log.Printf("failed to add root CA:\n%s", pem)
+		}
+	}
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			RootCAs: certs,
+		},
+	}
+	return &http.Client{Transport: transport}
 }
 
 // createClients reads a list of domains in the InsecureSkipVerify configuration and creates a map of domains to http.Client with InsecureSkipVerify set.
