@@ -433,7 +433,7 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 	if len(plugin.issuers) > 0 {
 		kid, ok := token.Header["kid"]
 		if ok {
-			refreshed := false
+			refreshed := ""
 			for looped := false; ; looped = true {
 				plugin.lock.RLock()
 				key, ok := plugin.keys[kid.(string)]
@@ -443,8 +443,8 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 				}
 
 				if looped {
-					if refreshed {
-						plugin.logInfo("key %s: refreshed keys and still no match", kid)
+					if refreshed != "" {
+						plugin.logInfo("key %s: refreshed keys from %s and still no match", kid, refreshed)
 					}
 					break
 				}
@@ -460,7 +460,7 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 						// This is a tradeoff between the cost of the extra requests (more so to the server) vs the cost to other threads of holding the lock.
 						err = plugin.fetchKeys(issuer)
 						if err == nil {
-							refreshed = true
+							refreshed = issuer
 						} else {
 							log.Printf("failed to fetch keys for %s: %v", issuer, err)
 						}
