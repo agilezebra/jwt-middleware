@@ -26,6 +26,8 @@ type Config struct {
 	ValidMethods         []string               `json:"validMethods,omitempty"`
 	Issuers              []string               `json:"issuers,omitempty"`
 	SkipPrefetch         bool                   `json:"skipPrefetch,omitempty"`
+	DelayPrefetch        string                 `json:"delayPrefetch,omitempty"`
+	RefreshKeysInterval  string                 `json:"refreshKeysInterval,omitempty"`
 	InsecureSkipVerify   []string               `json:"insecureSkipVerify,omitempty"`
 	RootCAs              []string               `json:"rootCAs,omitempty"`
 	Secret               string                 `json:"secret,omitempty"`
@@ -187,19 +189,48 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 	}
 	plugin.issuerKeys["internal"] = internalIssuerKeys(config.Secrets)
 
-	// Prefetch keys for all issuers (that don't contain a wildcard) unless skipPrefetch was set
-	if !config.SkipPrefetch {
-		for _, issuer := range plugin.issuers {
-			if !strings.Contains(issuer, "*") {
-				err := plugin.fetchKeys(issuer)
-				if err != nil {
-					log.Printf("failed to prefetch keys for %s: %v", issuer, err)
-				}
-			}
+	// Set up the prefetch and refresh intervals and the fetch routine
+	var delayPrefetch time.Duration
+	if config.SkipPrefetch {
+		delayPrefetch = -1
+	} else {
+		delayPrefetch, err = parseDuration(config.DelayPrefetch)
+		if err != nil {
+			return nil, fmt.Errorf("invalid delayPrefetch: %v", err)
 		}
 	}
+	refreshKeysInterval, err := parseDuration(config.RefreshKeysInterval)
+	if err != nil {
+		return nil, fmt.Errorf("invalid refreshKeysInterval: %v", err)
+	}
+
+	go plugin.fetchRoutine(delayPrefetch, refreshKeysInterval) // this is a noop if neither are required
 
 	return &plugin, nil
+}
+
+// parseDuration parses a duration string or returns 0 if the string is empty.
+func parseDuration(duration string) (time.Duration, error) {
+	if duration == "" {
+		return 0, nil
+	}
+	return time.ParseDuration(duration)
+}
+
+// fetchRoutine prefetches and rereshes keys for all issuers in the plugin's configuration optionally at the given intervals.
+func (plugin *JWTPlugin) fetchRoutine(delayPrefetch time.Duration, refreshKeysInterval time.Duration) {
+	// If we have an initial delay, which may be 0, wait for that before the first fetch
+	if delayPrefetch != -1 {
+		time.Sleep(delayPrefetch)
+		plugin.fetchAllKeys()
+	}
+	// If we have a refresh interval, loop forever fetching keys at that interval
+	if refreshKeysInterval != 0 {
+		for {
+			time.Sleep(refreshKeysInterval)
+			plugin.fetchAllKeys()
+		}
+	}
 }
 
 // internalIssuerKeys returns a dummy keyset for the keys in config.Secrets
@@ -509,6 +540,18 @@ func (plugin *JWTPlugin) clientForURL(address string) *http.Client {
 		return client
 	} else {
 		return plugin.defaultClient
+	}
+}
+
+// fetchAllKeys fetches all keys for all issuers in the plugin's configuration.
+func (plugin *JWTPlugin) fetchAllKeys() {
+	for _, issuer := range plugin.issuers {
+		if !strings.Contains(issuer, "*") {
+			err := plugin.fetchKeys(issuer)
+			if err != nil {
+				log.Printf("failed to fetch keys for %s: %v", issuer, err)
+			}
+		}
 	}
 }
 

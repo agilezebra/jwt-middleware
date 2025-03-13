@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-jose/go-jose/v3"
 	"github.com/golang-jwt/jwt/v5"
@@ -56,6 +57,7 @@ type Test struct {
 	Actions               map[string]string  // Map of "actions" to take during the test, some are just flags and some have values
 	Environment           map[string]string  // Map of environment variables to simulate for the test
 	Counts                map[string]int     // Map of arbitrary counts recorded in the test
+	Wait                  string             // Duration to wait before simulating the request
 }
 
 const (
@@ -791,6 +793,50 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
+			Name:   "delayPrefetch",
+			Expect: http.StatusOK,
+			Config: `
+			    delayPrefetch: "1s"
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:              "bad delayPrefetch",
+			ExpectPluginError: `invalid delayPrefetch: time: invalid duration "s"`,
+			Config: `
+			    delayPrefetch: "s"
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "refreshKeysInterval",
+			Expect: http.StatusOK,
+			Config: `
+			    refreshKeysInterval: "3s"
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:              "bad refreshKeysInterval",
+			ExpectPluginError: `invalid refreshKeysInterval: time: invalid duration "s"`,
+			Config: `
+			    refreshKeysInterval: "s"
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
+		},
+		{
 			Name:   "unknown issuer",
 			Expect: http.StatusUnauthorized,
 			Config: `
@@ -844,6 +890,7 @@ func TestServeHTTP(tester *testing.T) {
 			Expect:       http.StatusOK,
 			ExpectCounts: map[string]int{jwksCalls: 2},
 			Config: `
+			    skipPrefetch: true
 				require:
 					aud: test`,
 			Claims:     `{"aud": "test"}`,
@@ -1010,6 +1057,7 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodRS256,
 			HeaderName: "Authorization",
+			Wait:       "1s",
 		},
 		{
 			Name:   "Non-existant issuers",
@@ -1110,6 +1158,13 @@ func TestServeHTTP(tester *testing.T) {
 			response := httptest.NewRecorder()
 
 			// Run the request
+			if test.Wait != "" {
+				duration, err := time.ParseDuration(test.Wait)
+				if err != nil {
+					panic(err)
+				}
+				time.Sleep(duration)
+			}
 			plugin.ServeHTTP(response, request)
 
 			// Check expectations
