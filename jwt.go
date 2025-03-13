@@ -426,13 +426,14 @@ func (plugin *JWTPlugin) validateClaim(claim string, claims jwt.MapClaims, requi
 	return false
 }
 
-// getKey gets the key for the given key ID from the plugin's key cache. If the key isn't present and the iss is valid according to the plugin's configuration, all keys for the iss are fetched and the key is looked up again.
+// getKey gets the key for the given key ID from the plugin's key cache.
+// If the key isn't present and the iss is valid according to the plugin's configuration, all keys for the iss are refreshed and the key is looked up again.
 func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 	err := fmt.Errorf("no secret configured")
 	if len(plugin.issuers) > 0 {
 		kid, ok := token.Header["kid"]
 		if ok {
-			fetched := false
+			refreshed := false
 			for looped := false; ; looped = true {
 				plugin.lock.RLock()
 				key, ok := plugin.keys[kid.(string)]
@@ -442,8 +443,8 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 				}
 
 				if looped {
-					if fetched {
-						plugin.logInfo("key %s: fetched and no match", kid)
+					if refreshed {
+						plugin.logInfo("key %s: refreshed keys and still no match", kid)
 					}
 					break
 				}
@@ -456,7 +457,7 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 						if _, ok := plugin.keys[kid.(string)]; !ok {
 							err = plugin.fetchKeys(issuer)
 							if err == nil {
-								fetched = true
+								refreshed = true
 							} else {
 								log.Printf("failed to fetch keys for %s: %v", issuer, err)
 							}
@@ -472,7 +473,7 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 		}
 	}
 
-	// We fall back to any fixed secret
+	// We fall back to any fixed secret or return the error
 	if plugin.secret == nil {
 		return nil, err
 	}
