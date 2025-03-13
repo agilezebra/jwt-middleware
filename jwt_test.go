@@ -42,7 +42,6 @@ type Test struct {
 	Config                string             // The dynamic yml configuration to pass to the plugin
 	URL                   string             // Used to pass the URL from the server to the handlers (which must exist before the server)
 	Keys                  jose.JSONWebKeySet // JWKS used in test server
-	Lock                  sync.Mutex         // Lock to synchronize access to the keys
 	Method                jwt.SigningMethod  // Signing method for the token
 	Private               string             // Private key to use to sign the token rather than generating one
 	Kid                   string             // Kid for private key to use to sign the token rather than generating one
@@ -1323,10 +1322,11 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	test.Counts = make(map[string]int)
 
 	// Run a test server to provide the key(s)
+	var lock sync.Mutex // to synchronize access to the keys
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/jwks.json", func(response http.ResponseWriter, request *http.Request) {
-		test.Lock.Lock()
-		defer test.Lock.Unlock()
+		lock.Lock()
+		defer lock.Unlock()
 		test.Counts[jwksCalls]++
 
 		if _, ok := test.Actions[keysBadBody]; ok {
@@ -1413,10 +1413,10 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	if _, ok := test.Actions[rotateKey]; ok {
 		// Similate a key rotation by ...
 		plugin.ServeHTTP(httptest.NewRecorder(), request) // causing the plugin to fetch the existing key
-		test.Lock.Lock()
+		lock.Lock()
 		test.Keys.Keys = nil                     // removing it from the server
 		addTokenToRequest(test, config, request) // adding a new key to the server and updating the token
-		test.Lock.Unlock()
+		lock.Unlock()
 	}
 
 	return plugin, request, server, nil
