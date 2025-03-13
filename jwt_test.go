@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-jose/go-jose/v3"
 	"github.com/golang-jwt/jwt/v5"
@@ -41,7 +42,6 @@ type Test struct {
 	Config                string             // The dynamic yml configuration to pass to the plugin
 	URL                   string             // Used to pass the URL from the server to the handlers (which must exist before the server)
 	Keys                  jose.JSONWebKeySet // JWKS used in test server
-	Lock                  sync.Mutex         // Lock to synchronize access to the keys
 	Method                jwt.SigningMethod  // Signing method for the token
 	Private               string             // Private key to use to sign the token rather than generating one
 	Kid                   string             // Kid for private key to use to sign the token rather than generating one
@@ -56,6 +56,7 @@ type Test struct {
 	Actions               map[string]string  // Map of "actions" to take during the test, some are just flags and some have values
 	Environment           map[string]string  // Map of environment variables to simulate for the test
 	Counts                map[string]int     // Map of arbitrary counts recorded in the test
+	Wait                  string             // Duration to wait before simulating the request
 }
 
 const (
@@ -791,6 +792,50 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
+			Name:   "delayPrefetch",
+			Expect: http.StatusOK,
+			Config: `
+			    delayPrefetch: "1s"
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:              "bad delayPrefetch",
+			ExpectPluginError: `invalid delayPrefetch: time: invalid duration "s"`,
+			Config: `
+			    delayPrefetch: "s"
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "refreshKeysInterval",
+			Expect: http.StatusOK,
+			Config: `
+			    refreshKeysInterval: "3s"
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:              "bad refreshKeysInterval",
+			ExpectPluginError: `invalid refreshKeysInterval: time: invalid duration "s"`,
+			Config: `
+			    refreshKeysInterval: "s"
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
+		},
+		{
 			Name:   "unknown issuer",
 			Expect: http.StatusUnauthorized,
 			Config: `
@@ -844,6 +889,7 @@ func TestServeHTTP(tester *testing.T) {
 			Expect:       http.StatusOK,
 			ExpectCounts: map[string]int{jwksCalls: 2},
 			Config: `
+			    skipPrefetch: true
 				require:
 					aud: test`,
 			Claims:     `{"aud": "test"}`,
@@ -1010,6 +1056,7 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodRS256,
 			HeaderName: "Authorization",
+			Wait:       "1s",
 		},
 		{
 			Name:   "Non-existant issuers",
@@ -1110,6 +1157,13 @@ func TestServeHTTP(tester *testing.T) {
 			response := httptest.NewRecorder()
 
 			// Run the request
+			if test.Wait != "" {
+				duration, err := time.ParseDuration(test.Wait)
+				if err != nil {
+					panic(err)
+				}
+				time.Sleep(duration)
+			}
 			plugin.ServeHTTP(response, request)
 
 			// Check expectations
@@ -1268,10 +1322,11 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	test.Counts = make(map[string]int)
 
 	// Run a test server to provide the key(s)
+	var lock sync.Mutex // to synchronize access to the keys
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/jwks.json", func(response http.ResponseWriter, request *http.Request) {
-		test.Lock.Lock()
-		defer test.Lock.Unlock()
+		lock.Lock()
+		defer lock.Unlock()
 		test.Counts[jwksCalls]++
 
 		if _, ok := test.Actions[keysBadBody]; ok {
@@ -1358,10 +1413,10 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	if _, ok := test.Actions[rotateKey]; ok {
 		// Similate a key rotation by ...
 		plugin.ServeHTTP(httptest.NewRecorder(), request) // causing the plugin to fetch the existing key
-		test.Lock.Lock()
+		lock.Lock()
 		test.Keys.Keys = nil                     // removing it from the server
 		addTokenToRequest(test, config, request) // adding a new key to the server and updating the token
-		test.Lock.Unlock()
+		lock.Unlock()
 	}
 
 	return plugin, request, server, nil
