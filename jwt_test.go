@@ -79,7 +79,6 @@ func TestServeHTTP(tester *testing.T) {
 			Name:   "no token",
 			Expect: http.StatusUnauthorized,
 			Config: `
-				issuers: https://example.com
 				require:
 					aud: test
 				parameterName: token`,
@@ -93,7 +92,6 @@ func TestServeHTTP(tester *testing.T) {
 				"grpc-message": "UNAUTHENTICATED",
 			},
 			Config: `
-				issuers: https://example.com
 				require:
 					aud: test
 				parameterName: token`,
@@ -102,7 +100,6 @@ func TestServeHTTP(tester *testing.T) {
 			Name:   "optional with no token",
 			Expect: http.StatusOK,
 			Config: `
-				issuers: https://example.com
 				require:
 					aud: test
 				optional: true
@@ -113,9 +110,6 @@ func TestServeHTTP(tester *testing.T) {
 			Expect:       http.StatusOK,
 			ExpectCounts: map[string]int{jwksCalls: 1},
 			Config: `
-				issuers:
-					- https://dummy.example.com
-					- https://example.com
 				secret: fixed secret
 				require:
 					aud: test`,
@@ -971,9 +965,6 @@ func TestServeHTTP(tester *testing.T) {
 			Expect:        http.StatusOK,
 			ExpectHeaders: map[string]string{"X-Id": "1234"},
 			Config: `
-				issuers:
-					- https://dummy.example.com
-					- https://example.com
 				secret: fixed secret
 				require:
 					aud: test
@@ -990,9 +981,6 @@ func TestServeHTTP(tester *testing.T) {
 			ExpectCookies: map[string]string{"Test": "test", "Other": "other"},
 			Cookies:       map[string]string{"Test": "test", "Other": "other"},
 			Config: `
-				issuers:
-					- https://dummy.example.com
-					- https://example.com
 				secret: fixed secret
 				require:
 					aud: test
@@ -1000,6 +988,19 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodHS256,
 			CookieName: "Authorization",
+		},
+		{
+			Name:   "Non-existant issuers",
+			Expect: http.StatusOK,
+			Config: `
+				issuers:
+					- https://dummy.example.com
+					- https://example.com
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
 		},
 		{
 			Name:   "InsecureSkipVerify",
@@ -1019,8 +1020,6 @@ func TestServeHTTP(tester *testing.T) {
 			Name:   "RootCAs",
 			Expect: http.StatusOK,
 			Config: `
-				issuers:
-					- "https://127.0.0.1/"
 				rootCAs: |
                     -----BEGIN CERTIFICATE-----
                     MIIDJzCCAg+gAwIBAgIUDDYN8pGCpUC6tsqDW4meIXsmN04wDQYJKoZIhvcNAQEL
@@ -1051,8 +1050,6 @@ func TestServeHTTP(tester *testing.T) {
 			Name:   "Bad RootCAs",
 			Expect: http.StatusOK,
 			Config: `
-				issuers:
-					- "https://127.0.0.1/"
 				rootCAs: |
                     -----BEGIN CERTIFICATE-----
                     bad
@@ -1067,8 +1064,6 @@ func TestServeHTTP(tester *testing.T) {
 			Name:   "infoToStdout",
 			Expect: http.StatusOK,
 			Config: `
-				issuers:
-					- https://example.com
 				infoToStdout: true
 				require:
 					aud: test`,
