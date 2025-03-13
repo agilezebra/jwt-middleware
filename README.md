@@ -19,7 +19,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/agilezebra/jwt-middleware
-      version: v1.2.8
+      version: v1.2.9
 ```
 1b. or with command-line options:
 
@@ -27,7 +27,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/agilezebra/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.2.8"
+  - "--experimental.plugins.jwt.version=v1.2.9"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
@@ -59,6 +59,8 @@ Name | Description
 `secret` | A shared HMAC secret or a fixed public key to use for signature validation. A fixed secret may be used in conjunction with `issuers` to combine static and dynamic keys. This can be useful when transitioning from earlier systems or for machine-to-machine tokens signed with internal keys. Note that if a dynamic key is not matched for a presented token's key, but a static secret is configured, the static secret will be tried as a fallback key. If this secret is not of the correct type for the presented key, an error such as `token signature is invalid: key is of invalid type` will be returned to the user, which may be confusing. 
 `secrets` | A map of kid -> secret. As `secret` above, these may be used in combination with `issuers`. Any secrets provided here will be preloaded into the plugin's cache. Any presented tokens with matching `kid`s will therefore not need have the key fetched from the issuer. This mechanism is preferred over a single anonymous `secret` when a `kid` is used, as it avoids the fallback type message described above.
 `skipPrefetch` | Don't prefetch keys from `issuers`. This is useful if all the expected secrets are provided in `secrets`, especially in situations where traefik or its services are frequently restarted, to save from hitting the issuer JWKS endpoint unnecessarily.
+`delayPrefetch` | Delay prefetching from keys from `issuers` by the given duration (expressed in `time.ParseDuration` format - e.g. "300ms", "5s"). This is particularly useful if your openid server is behind the very traefik service that is loading the plugin and you need to give it time to be ready for your request. This has no effect if `skipPrefetch` is set.
+`refreshKeysInterval` | Arbitrarily refresh all keys from all `issuers` in a background thread every given duration (after any prefetch).
 `require` | A map of zero or more claims that must all be present and match against one or more values. If no claims are specified in `require`, all tokens that are validly signed by the trusted issuers or secrets will pass. If more than one claim is specified, each is required (i.e. an AND relationship exists for all the specified claims). For each claim, multiple values may be specified and the claim will be valid if any matches (i.e. an OR relationship exists for required values within a claim). fnmatch-style wildcards are optionally supported for claims in issued JWTs. If you do not wish to support wildcard claims, simply do not put such wildcards into the JWTs that you issue. See below for examples and the variables available with template interpolation.
 `headerMap` | A map in the form of header -> claim. Headers will be added (or overwritten) to the forwarded HTTP request from the claim values in the token. If the claim is not present, no action for that value is taken (and any existing header will remain unchanged).
 `cookieName` | Name of the cookie to retrieve the token from if present. Default: `Authorization`. If token retrieval from cookies must be disabled for some reason, set to an empty string.  If `forwardAuth` is `false`, the cookie will be removed before forwarding to the backend.
