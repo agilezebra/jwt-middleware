@@ -453,16 +453,17 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
 				if ok {
 					issuer = canonicalizeDomain(issuer)
 					if plugin.isValidIssuer(issuer) {
-						plugin.lock.Lock()
-						if _, ok := plugin.keys[kid.(string)]; !ok {
-							err = plugin.fetchKeys(issuer)
-							if err == nil {
-								refreshed = true
-							} else {
-								log.Printf("failed to fetch keys for %s: %v", issuer, err)
-							}
+						// There is a design choice here: we have determined that the key is not present whilst holding the read lock.
+						// fetchKeys will fetch the metadata and key from the issuer before it aquires the write lock, as we don't want
+						// to block other requests that are able to immediately read available keys.
+						// This means that we may make multiple requests at the same time for the same kid, if it is newly presented concurrently.
+						// This is a tradeoff between the cost of the extra requests (more so to the server) vs the cost to other threads of holding the lock.
+						err = plugin.fetchKeys(issuer)
+						if err == nil {
+							refreshed = true
+						} else {
+							log.Printf("failed to fetch keys for %s: %v", issuer, err)
 						}
-						plugin.lock.Unlock()
 					} else {
 						err = fmt.Errorf("issuer %s is not valid", issuer)
 					}
@@ -525,6 +526,10 @@ func (plugin *JWTPlugin) fetchKeys(issuer string) error {
 	if err != nil {
 		return err
 	}
+
+	plugin.lock.Lock()
+	defer plugin.lock.Unlock()
+
 	for keyID, key := range jwks {
 		plugin.logInfo("fetched key:%s from url:%s", keyID, url)
 		plugin.keys[keyID] = key
