@@ -19,6 +19,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/go-jose/go-jose/v3"
@@ -40,6 +41,7 @@ type Test struct {
 	Config                string             // The dynamic yml configuration to pass to the plugin
 	URL                   string             // Used to pass the URL from the server to the handlers (which must exist before the server)
 	Keys                  jose.JSONWebKeySet // JWKS used in test server
+	Lock                  sync.Mutex         // Lock to synchronize access to the keys
 	Method                jwt.SigningMethod  // Signing method for the token
 	Private               string             // Private key to use to sign the token rather than generating one
 	Kid                   string             // Kid for private key to use to sign the token rather than generating one
@@ -106,9 +108,8 @@ func TestServeHTTP(tester *testing.T) {
 				parameterName: token`,
 		},
 		{
-			Name:         "token in cookie",
-			Expect:       http.StatusOK,
-			ExpectCounts: map[string]int{jwksCalls: 1},
+			Name:   "token in cookie",
+			Expect: http.StatusOK,
 			Config: `
 				secret: fixed secret
 				require:
@@ -118,9 +119,8 @@ func TestServeHTTP(tester *testing.T) {
 			CookieName: "Authorization",
 		},
 		{
-			Name:         "token in header",
-			Expect:       http.StatusOK,
-			ExpectCounts: map[string]int{jwksCalls: 1},
+			Name:   "token in header",
+			Expect: http.StatusOK,
 			Config: `
 				secret: fixed secret
 				require:
@@ -130,9 +130,8 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:         "token in header with Bearer prefix",
-			Expect:       http.StatusOK,
-			ExpectCounts: map[string]int{jwksCalls: 1},
+			Name:   "token in header with Bearer prefix",
+			Expect: http.StatusOK,
 			Config: `
 				secret: fixed secret
 				require:
@@ -144,9 +143,8 @@ func TestServeHTTP(tester *testing.T) {
 		},
 
 		{
-			Name:         "token in query string",
-			Expect:       http.StatusOK,
-			ExpectCounts: map[string]int{jwksCalls: 1},
+			Name:   "token in query string",
+			Expect: http.StatusOK,
 			Config: `
 				secret: fixed secret
 				require:
@@ -782,9 +780,21 @@ func TestServeHTTP(tester *testing.T) {
 			CookieName: "Authorization",
 		},
 		{
+			Name:   "skipPrefetch",
+			Expect: http.StatusOK,
+			Config: `
+			    skipPrefetch: true
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
+		},
+		{
 			Name:   "unknown issuer",
 			Expect: http.StatusUnauthorized,
 			Config: `
+			    skipPrefetch: true
 				require:
 					aud: test`,
 			Claims:     `{"aud": "test", "iss": "unknown.com"}`,
@@ -795,6 +805,7 @@ func TestServeHTTP(tester *testing.T) {
 			Name:   "no issuer",
 			Expect: http.StatusUnauthorized,
 			Config: `
+			    skipPrefetch: true
 				require:
 					aud: test`,
 			Claims:     `{"aud": "test"}`,
@@ -831,7 +842,7 @@ func TestServeHTTP(tester *testing.T) {
 		{
 			Name:         "key rotation",
 			Expect:       http.StatusOK,
-			ExpectCounts: map[string]int{jwksCalls: 3},
+			ExpectCounts: map[string]int{jwksCalls: 2},
 			Config: `
 				require:
 					aud: test`,
@@ -988,6 +999,17 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodHS256,
 			CookieName: "Authorization",
+		},
+		{
+			Name:         "Prefetch",
+			Expect:       http.StatusOK,
+			ExpectCounts: map[string]int{jwksCalls: 1},
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
 		},
 		{
 			Name:   "Non-existant issuers",
@@ -1248,6 +1270,8 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	// Run a test server to provide the key(s)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/jwks.json", func(response http.ResponseWriter, request *http.Request) {
+		test.Lock.Lock()
+		defer test.Lock.Unlock()
 		test.Counts[jwksCalls]++
 
 		if _, ok := test.Actions[keysBadBody]; ok {
@@ -1317,6 +1341,10 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 		test.ClaimsMap["iss"] = server.URL
 	}
 
+	if test.Actions[useFixedSecret] != yes {
+		addTokenToRequest(test, config, request)
+	}
+
 	// Create the plugin
 	next := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) { test.Allowed = true })
 	plugin, err := New(context, next, config, "test-jwt-middleware")
@@ -1327,16 +1355,15 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 		return nil, nil, nil, err
 	}
 
-	if test.Actions[useFixedSecret] != yes {
-		if _, ok := test.Actions[rotateKey]; ok {
-			// Similate a key rotation by ...
-			addTokenToRequest(test, config, request)          // adding a new key to the server ...
-			plugin.ServeHTTP(httptest.NewRecorder(), request) // causing the plugin to fetch it and then ...
-			test.Keys.Keys = nil                              // removing it from the server
-		}
-
-		addTokenToRequest(test, config, request)
+	if _, ok := test.Actions[rotateKey]; ok {
+		// Similate a key rotation by ...
+		plugin.ServeHTTP(httptest.NewRecorder(), request) // causing the plugin to fetch the existing key
+		test.Lock.Lock()
+		test.Keys.Keys = nil                     // removing it from the server
+		addTokenToRequest(test, config, request) // adding a new key to the server and updating the token
+		test.Lock.Unlock()
 	}
+
 	return plugin, request, server, nil
 }
 
