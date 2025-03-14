@@ -1116,6 +1116,30 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
+			Name:   "RootCAs from file",
+			Expect: http.StatusOK,
+			Config: `
+				rootCAs: 
+					- testing/rootca.pem
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:              "RootCAs from bad file",
+			ExpectPluginError: "failed to load root CA: open notexist/rootca.pem: no such file or directory",
+			Config: `
+				rootCAs: 
+					- notexist/rootca.pem
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodES256,
+			HeaderName: "Authorization",
+		},
+		{
 			Name:   "Bad RootCAs",
 			Expect: http.StatusOK,
 			Config: `
