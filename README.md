@@ -19,7 +19,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/agilezebra/jwt-middleware
-      version: v1.2.9
+      version: v1.2.10
 ```
 1b. or with command-line options:
 
@@ -27,7 +27,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/agilezebra/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.2.9"
+  - "--experimental.plugins.jwt.version=v1.2.10"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
@@ -72,7 +72,7 @@ Name | Description
 `forwardToken` | Boolean indicating whether the token should be forwarded to the backend. Default true. If multiple tokens are present in different locations (e.g. cookie and header) and forwarding is false, only the token used will be removed. 
 `optional` | Validate tokens according to the normal rules but don't require that a token be present. If specific claim requirements are specified in `require` but with `optional` set to `true` and a token is not present, access will be permitted even though the requirements are obviously not met, which may not be what you want or expect. In this case, no headers will be set from claims (as there aren't any). This is quite a niche case but is intended for use on endpoints that support both authorized and anonymous access and you want JWTs verified if present.
 `insecureSkipVerify` | A list of issuers' domains for which TLS certificates should not be verified (i.e. use `InsecureSkipVerify: true`). Only the hostname/domain should be specified (i.e. no scheme or trailing slash). Applies to both the openid-configuration and jwks calls.
-`rootCAs` | One or more additional root certificate authorities, in PEM format, to be combined with the system cert pool when verifying server certificates.
+`rootCAs` | One or more additional root certificate authorities, each expressed either inline in PEM format, or as a path to a file, to be combined with the system cert pool when verifying server certificates.
 `infoToStdout` | traefik does not yet have support for plugins to use the logger so, by default, all messages are logged using `log.Printf`, which will send messages from the plugin out as if they were logged at `ERROR` level. This may be irritating for those that don't like to see non-error messages show up as if they are errors. There is a workaround available in that the plugin can send messages to STDOUT and traefik will log these as if they were logged at `DEBUG` level. Setting `infoToStdout` to `true` will send all non-error info messages to STDOUT and these will appear in logs at `DEBUG` level. These will obviously only appear if you set your traefik log level to `DEBUG` (which may actually be more irritating if you don't want the spew that this creates, so this option is not enabled by default). Note also that this workaround does not appear to be working correctly in traefik v2 and in this case you may not see info messages at all if you enable this.
 
 ### Template Interpolation

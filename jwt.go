@@ -152,6 +152,14 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		return nil, err
 	}
 
+	for index, pem := range config.RootCAs {
+		pem, err := pemContent(pem)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load root CA: %v", err)
+		}
+		config.RootCAs[index] = pem
+	}
+
 	plugin := JWTPlugin{
 		next:                 next,
 		name:                 name,
@@ -618,6 +626,18 @@ func canonicalizeDomains(domains []string) []string {
 		domains[index] = canonicalizeDomain(domain)
 	}
 	return domains
+}
+
+// pemContent returns the value if it is alread a PEM or reads the file if it is a filename.
+func pemContent(value string) (string, error) {
+	if value == "" || strings.HasPrefix(value, "-----BEGIN") {
+		return value, nil
+	}
+	content, err := os.ReadFile(value)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
 }
 
 // createDefaultClient returns an http.Client with the given root CAs, or a default client if no root CAs are provided.
