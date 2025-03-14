@@ -23,26 +23,26 @@ import (
 
 // Config is the configuration for the plugin.
 type Config struct {
-	ValidMethods         []string               `json:"validMethods,omitempty"`
-	Issuers              []string               `json:"issuers,omitempty"`
-	SkipPrefetch         bool                   `json:"skipPrefetch,omitempty"`
-	DelayPrefetch        string                 `json:"delayPrefetch,omitempty"`
-	RefreshKeysInterval  string                 `json:"refreshKeysInterval,omitempty"`
-	InsecureSkipVerify   []string               `json:"insecureSkipVerify,omitempty"`
-	RootCAs              []string               `json:"rootCAs,omitempty"`
-	Secret               string                 `json:"secret,omitempty"`
-	Secrets              map[string]string      `json:"secrets,omitempty"`
-	Require              map[string]interface{} `json:"require,omitempty"`
-	Optional             bool                   `json:"optional,omitempty"`
-	RedirectUnauthorized string                 `json:"redirectUnauthorized,omitempty"`
-	RedirectForbidden    string                 `json:"redirectForbidden,omitempty"`
-	CookieName           string                 `json:"cookieName,omitempty"`
-	HeaderName           string                 `json:"headerName,omitempty"`
-	ParameterName        string                 `json:"parameterName,omitempty"`
-	HeaderMap            map[string]string      `json:"headerMap,omitempty"`
-	ForwardToken         bool                   `json:"forwardToken,omitempty"`
-	Freshness            int64                  `json:"freshness,omitempty"`
-	InfoToStdout         bool                   `json:"infoToStdout,omitempty"`
+	ValidMethods         []string          `json:"validMethods,omitempty"`
+	Issuers              []string          `json:"issuers,omitempty"`
+	SkipPrefetch         bool              `json:"skipPrefetch,omitempty"`
+	DelayPrefetch        string            `json:"delayPrefetch,omitempty"`
+	RefreshKeysInterval  string            `json:"refreshKeysInterval,omitempty"`
+	InsecureSkipVerify   []string          `json:"insecureSkipVerify,omitempty"`
+	RootCAs              []string          `json:"rootCAs,omitempty"`
+	Secret               string            `json:"secret,omitempty"`
+	Secrets              map[string]string `json:"secrets,omitempty"`
+	Require              map[string]any    `json:"require,omitempty"`
+	Optional             bool              `json:"optional,omitempty"`
+	RedirectUnauthorized string            `json:"redirectUnauthorized,omitempty"`
+	RedirectForbidden    string            `json:"redirectForbidden,omitempty"`
+	CookieName           string            `json:"cookieName,omitempty"`
+	HeaderName           string            `json:"headerName,omitempty"`
+	ParameterName        string            `json:"parameterName,omitempty"`
+	HeaderMap            map[string]string `json:"headerMap,omitempty"`
+	ForwardToken         bool              `json:"forwardToken,omitempty"`
+	Freshness            int64             `json:"freshness,omitempty"`
+	InfoToStdout         bool              `json:"infoToStdout,omitempty"`
 }
 
 // JWTPlugin is a traefik middleware plugin that authorizes access based on JWT tokens.
@@ -50,14 +50,14 @@ type JWTPlugin struct {
 	next                 http.Handler
 	name                 string
 	parser               *jwt.Parser
-	secret               interface{}
+	secret               any
 	issuers              []string
 	clients              map[string]*http.Client
 	defaultClient        *http.Client
 	require              map[string][]Requirement
 	lock                 sync.RWMutex
-	keys                 map[string]interface{}
-	issuerKeys           map[string]map[string]interface{}
+	keys                 map[string]any
+	issuerKeys           map[string]map[string]any
 	optional             bool
 	redirectUnauthorized *template.Template
 	redirectForbidden    *template.Template
@@ -77,19 +77,19 @@ type TemplateVariables map[string]string
 
 // Requirement is a requirement for a claim.
 type Requirement interface {
-	Validate(value interface{}, variables *TemplateVariables) bool
+	Validate(value any, variables *TemplateVariables) bool
 }
 
 // ValueRequirement is a requirement for a claim that is a known value.
 type ValueRequirement struct {
-	value  interface{}
-	nested interface{}
+	value  any
+	nested any
 }
 
 // TemplateRequirement is a dynamic requirement for a claim that uses a template that needs interpolating per request.
 type TemplateRequirement struct {
 	template *template.Template
-	nested   interface{}
+	nested   any
 }
 
 // CreateConfig creates the default plugin configuration.
@@ -103,7 +103,7 @@ func CreateConfig() *Config {
 	}
 }
 
-func setupSecret(secret string) (interface{}, error) {
+func setupSecret(secret string) (any, error) {
 	// If secret is empty, we don't have a fixed secret
 	if secret == "" {
 		return nil, nil
@@ -134,7 +134,7 @@ func environment() map[string]string {
 }
 
 // logInfo logs to stdout if infoToStdout is true or to the default logger if not.
-func (plugin *JWTPlugin) logInfo(format string, v ...interface{}) {
+func (plugin *JWTPlugin) logInfo(format string, v ...any) {
 	// Note we tried to use a function pointer in the struct with a one-time setup but yaegi can't cope with it
 	if plugin.infoToStdout {
 		fmt.Printf(format, v...)
@@ -169,8 +169,8 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		clients:              createClients(config.InsecureSkipVerify),
 		defaultClient:        createDefaultClient(config.RootCAs, true),
 		require:              convertRequire(config.Require),
-		keys:                 make(map[string]interface{}),
-		issuerKeys:           make(map[string]map[string]interface{}),
+		keys:                 make(map[string]any),
+		issuerKeys:           make(map[string]map[string]any),
 		optional:             config.Optional,
 		redirectUnauthorized: createTemplate(config.RedirectUnauthorized),
 		redirectForbidden:    createTemplate(config.RedirectForbidden),
@@ -242,8 +242,8 @@ func (plugin *JWTPlugin) fetchRoutine(delayPrefetch time.Duration, refreshKeysIn
 }
 
 // internalIssuerKeys returns a dummy keyset for the keys in config.Secrets
-func internalIssuerKeys(secrets map[string]string) map[string]interface{} {
-	keys := make(map[string]interface{}, len(secrets))
+func internalIssuerKeys(secrets map[string]string) map[string]any {
+	keys := make(map[string]any, len(secrets))
 	for kid := range secrets {
 		keys[kid] = nil
 	}
@@ -341,15 +341,15 @@ func (plugin *JWTPlugin) validate(request *http.Request, variables *TemplateVari
 // Validate checks value against the requirement, calling ourself recursively for object and array values.
 // variables is required in the interface and passed on recusrively but ultimately ignored by ValueRequirement
 // having been already interpolated by TemplateRequirement
-func (requirement ValueRequirement) Validate(value interface{}, variables *TemplateVariables) bool {
+func (requirement ValueRequirement) Validate(value any, variables *TemplateVariables) bool {
 	switch value := value.(type) {
-	case []interface{}:
+	case []any:
 		for _, value := range value {
 			if requirement.Validate(value, variables) {
 				return true
 			}
 		}
-	case map[string]interface{}:
+	case map[string]any:
 		for value, nested := range value {
 			if requirement.Validate(value, variables) && requirement.ValidateNested(nested) {
 				return true
@@ -367,26 +367,26 @@ func (requirement ValueRequirement) Validate(value interface{}, variables *Templ
 }
 
 // ValidateNested checks value against the nested requirement
-func (requirement ValueRequirement) ValidateNested(value interface{}) bool {
+func (requirement ValueRequirement) ValidateNested(value any) bool {
 	// The nested requirement may be a single required value, or an OR choice of acceptable values. Convert to a slice of values.
-	var required []interface{}
+	var required []any
 	switch nested := requirement.nested.(type) {
 	case nil:
 		// If the nested requirement is nil, we don't care about the nested claims that brought us here and the value is always valid.
 		return true
-	case []interface{}:
+	case []any:
 		required = nested
-	case interface{}:
-		required = []interface{}{nested}
+	case any:
+		required = []any{nested}
 	}
 
 	// Likewise, the value may be a single claim value or an array of several granted claims values. Convert to a slice of values.
-	var supplied []interface{}
+	var supplied []any
 	switch value := value.(type) {
-	case []interface{}:
+	case []any:
 		supplied = value
-	case interface{}:
-		supplied = []interface{}{value}
+	case any:
+		supplied = []any{value}
 	}
 
 	// If any of the values match any of the nested requirement, the claim is valid.
@@ -401,7 +401,7 @@ func (requirement ValueRequirement) ValidateNested(value interface{}) bool {
 }
 
 // Validate interpolates the requirement template with the given variables and then delegates to ValueRequirement.
-func (requirement TemplateRequirement) Validate(value interface{}, variables *TemplateVariables) bool {
+func (requirement TemplateRequirement) Validate(value any, variables *TemplateVariables) bool {
 	var buffer bytes.Buffer
 	err := requirement.template.Execute(&buffer, variables)
 	if err != nil {
@@ -412,17 +412,17 @@ func (requirement TemplateRequirement) Validate(value interface{}, variables *Te
 }
 
 // convertRequire converts the require configuration to a map of requirements.
-func convertRequire(require map[string]interface{}) map[string][]Requirement {
+func convertRequire(require map[string]any) map[string][]Requirement {
 	converted := make(map[string][]Requirement, len(require))
 	for key, value := range require {
 		switch value := value.(type) {
-		case []interface{}:
+		case []any:
 			requirements := make([]Requirement, len(value))
 			for index, value := range value {
 				requirements[index] = createRequirement(value, nil)
 			}
 			converted[key] = requirements
-		case map[string]interface{}:
+		case map[string]any:
 			requirements := make([]Requirement, len(value))
 			index := 0
 			for key, value := range value {
@@ -439,7 +439,7 @@ func convertRequire(require map[string]interface{}) map[string][]Requirement {
 }
 
 // createRequirement creates a Requirement of the correct type from the given value (and any nested value).
-func createRequirement(value interface{}, nested interface{}) Requirement {
+func createRequirement(value any, nested any) Requirement {
 	switch value := value.(type) {
 	case string:
 		if strings.Contains(value, "{{") && strings.Contains(value, "}}") {
@@ -467,7 +467,7 @@ func (plugin *JWTPlugin) validateClaim(claim string, claims jwt.MapClaims, requi
 
 // getKey gets the key for the given key ID from the plugin's key cache.
 // If the key isn't present and the iss is valid according to the plugin's configuration, all keys for the iss are refreshed and the key is looked up again.
-func (plugin *JWTPlugin) getKey(token *jwt.Token) (interface{}, error) {
+func (plugin *JWTPlugin) getKey(token *jwt.Token) (any, error) {
 	err := fmt.Errorf("no secret configured")
 	if len(plugin.issuers) > 0 {
 		kid, ok := token.Header["kid"]

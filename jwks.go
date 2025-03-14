@@ -44,7 +44,7 @@ type JSONWebKeySet struct {
 }
 
 // FetchJWKS fetches the JSON web keys from the given URL and returns a map kid -> key.
-func FetchJWKS(url string, client *http.Client) (map[string]interface{}, error) {
+func FetchJWKS(url string, client *http.Client) (map[string]any, error) {
 	response, err := client.Get(url)
 	if err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func FetchJWKS(url string, client *http.Client) (map[string]interface{}, error) 
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", url, err)
 	}
-	keys := make(map[string]interface{}, len(jwks.Keys))
+	keys := make(map[string]any, len(jwks.Keys))
 	for _, jwk := range jwks.Keys {
 		if jwk.Kid == "" {
 			jwk.Kid = JWKThumbprint(jwk)
