@@ -1264,7 +1264,7 @@ func expectDisallow(test *Test) bool {
 
 // createConfig creates a configuration from a YAML string using the same method traefik
 func createConfig(text string) (*Config, error) {
-	var config map[string]interface{}
+	var config map[string]any
 	err := yaml.Unmarshal([]byte(strings.Replace(text, "\t", "    ", -1)), &config)
 	if err != nil {
 		return nil, err
@@ -1472,14 +1472,14 @@ func addTokenToRequest(test *Test, config *Config, request *http.Request) {
 
 // jsonActions manipulates the JSON keys to test the middleware.
 func jsonActions(actions map[string]string, keys []byte) ([]byte, error) {
-	var data map[string]interface{}
+	var data map[string]any
 	err := json.Unmarshal(keys, &data)
 	if err != nil {
 		return nil, err
 	}
 	if data["keys"] != nil {
-		for _, key := range data["keys"].([]interface{}) {
-			key := key.(map[string]interface{})
+		for _, key := range data["keys"].([]any) {
+			key := key.(map[string]any)
 			for action, value := range actions {
 				if strings.HasPrefix(action, "set:") {
 					key[action[4:]] = value
@@ -1508,8 +1508,8 @@ func createTokenAndSaveKey(test *Test, config *Config) string {
 	token := jwt.NewWithClaims(method, test.ClaimsMap)
 
 	// Generate or use a key pair based on the method and test mode
-	var private interface{}
-	var public interface{}
+	var private any
+	var public any
 	var publicPEM string
 	switch method {
 	case jwt.SigningMethodHS256, jwt.SigningMethodHS384, jwt.SigningMethodHS512:
@@ -1605,7 +1605,7 @@ func createTokenAndSaveKey(test *Test, config *Config) string {
 }
 
 // convertKeyToJWKWithKID converts a RSA key to a JWK JSON string
-func convertKeyToJWKWithKID(key interface{}, algorithm string) (jose.JSONWebKey, string) {
+func convertKeyToJWKWithKID(key any, algorithm string) (jose.JSONWebKey, string) {
 	jwk := jose.JSONWebKey{
 		Key:       key,
 		Algorithm: algorithm,
