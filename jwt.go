@@ -47,28 +47,28 @@ type Config struct {
 
 // JWTPlugin is a traefik middleware plugin that authorizes access based on JWT tokens.
 type JWTPlugin struct {
-	next                 http.Handler
-	name                 string
-	parser               *jwt.Parser
-	secret               any
-	issuers              []string
-	clients              map[string]*http.Client
-	defaultClient        *http.Client
-	require              map[string][]Requirement
-	lock                 sync.RWMutex
-	keys                 map[string]any
-	issuerKeys           map[string]map[string]any
-	optional             bool
-	redirectUnauthorized *template.Template
-	redirectForbidden    *template.Template
-	cookieName           string
-	headerName           string
-	parameterName        string
-	headerMap            map[string]string
-	forwardToken         bool
-	freshness            int64
-	environment          map[string]string
-	infoToStdout         bool
+	next                 http.Handler              // The next http.Handler in the chain
+	name                 string                    // The name of the plugin
+	parser               *jwt.Parser               // A JWT parser instance, which we use for all token parsing
+	secret               any                       // A single anonymous fixed public key or HMAC secret, or nil
+	issuers              []string                  // A list of valid issuers that we trust to fetch keys from
+	clients              map[string]*http.Client   // A map of clients for specific issuers that skip certificate verification
+	defaultClient        *http.Client              // A default client for fetching keys with certificate verification, optionally with custom root CAs
+	require              map[string][]Requirement  // A map of requirements for each claim
+	lock                 sync.RWMutex              // Read-write lock for the keys and issuerKeys maps
+	keys                 map[string]any            // A map of key IDs to public keys or shared HMAC secrets
+	issuerKeys           map[string]map[string]any // A map of issuer URLs to key IDs to public keys, for reference counting / purging
+	optional             bool                      // If true, requests without a token are allowed but any token provided must still be valid
+	redirectUnauthorized *template.Template        // A template for redirecting unauthorized requests
+	redirectForbidden    *template.Template        // A template for redirecting forbidden requests
+	cookieName           string                    // The name of the cookie to extract the token from
+	headerName           string                    // The name of the header to extract the token from
+	parameterName        string                    // The name of the query parameter to extract the token from
+	headerMap            map[string]string         // A map of claim names to header names to forward to the backend
+	forwardToken         bool                      // If true, the token is forwarded to the backend
+	freshness            int64                     // The maximum age of a token in seconds
+	environment          map[string]string         // Map of environment variables
+	infoToStdout         bool                      // If true, log non-error messahes to stdout instead of the default logger
 }
 
 // TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
