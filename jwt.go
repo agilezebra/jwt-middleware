@@ -103,26 +103,29 @@ func CreateConfig() *Config {
 	}
 }
 
-func setupSecret(secret string) (any, error) {
-	// If secret is empty, we don't have a fixed secret
-	if secret == "" {
+// setupKey parses `raw` and returns either the appropriate public key, if it's a PEM, or treats it as a shared HMAC secret.
+// Note that we could also use pemContent in here and allow paths to PEMs, as we do for rootCAs,
+// but there is no way to know a bad path from an HMAC secret.
+func setupKey(raw string) (any, error) {
+	// If raw is empty, we don't have a fixed key/secret
+	if raw == "" {
 		return nil, nil
 	}
 
 	// If raw is a PEM-encoded public key, return the public key
-	if strings.HasPrefix(secret, "-----BEGIN EC PUBLIC KEY") || strings.HasPrefix(secret, "-----BEGIN PUBLIC KEY") {
-		public, err := jwt.ParseECPublicKeyFromPEM([]byte(secret))
-		if err == nil || strings.HasPrefix(secret, "-----BEGIN RSA PUBLIC KEY") {
+	if strings.HasPrefix(raw, "-----BEGIN EC PUBLIC KEY") || strings.HasPrefix(raw, "-----BEGIN PUBLIC KEY") {
+		public, err := jwt.ParseECPublicKeyFromPEM([]byte(raw))
+		if err == nil || strings.HasPrefix(raw, "-----BEGIN RSA PUBLIC KEY") {
 			return public, err
 		}
 		// If it's only marked "BEGIN PUBLIC KEY" and we failed, we fall through to try the RSA key
 	}
-	if strings.HasPrefix(secret, "-----BEGIN RSA PUBLIC KEY") || strings.HasPrefix(secret, "-----BEGIN PUBLIC KEY") {
-		return jwt.ParseRSAPublicKeyFromPEM([]byte(secret))
+	if strings.HasPrefix(raw, "-----BEGIN RSA PUBLIC KEY") || strings.HasPrefix(raw, "-----BEGIN PUBLIC KEY") {
+		return jwt.ParseRSAPublicKeyFromPEM([]byte(raw))
 	}
 
 	// Otherwise, we assume it's a shared HMAC secret
-	return []byte(secret), nil
+	return []byte(raw), nil
 }
 
 // environment returns the environment variables as a map
@@ -138,7 +141,7 @@ func environment() map[string]string {
 
 // logInfo logs to stdout if infoToStdout is true or to the default logger if not.
 func (plugin *JWTPlugin) logInfo(format string, v ...any) {
-	// Note we tried to use a function pointer in the struct with a one-time setup but yaegi can't cope with it
+	// Note we tried to just use a function pointer in the plugin struct with a one-time setup but yaegi can't cope with it
 	if plugin.infoToStdout {
 		fmt.Printf(format, v...)
 	} else {
@@ -150,7 +153,7 @@ func (plugin *JWTPlugin) logInfo(format string, v ...any) {
 func New(_ context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	log.SetFlags(0)
 
-	secret, err := setupSecret(config.Secret)
+	key, err := setupKey(config.Secret)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +170,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		next:                 next,
 		name:                 name,
 		parser:               jwt.NewParser(jwt.WithValidMethods(config.ValidMethods)),
-		secret:               secret,
+		secret:               key,
 		issuers:              canonicalizeDomains(config.Issuers),
 		clients:              createClients(config.InsecureSkipVerify),
 		defaultClient:        createDefaultClient(config.RootCAs, true),
@@ -189,14 +192,14 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 
 	// If we have keys/secrets, add them to the key cache
 	for kid, raw := range config.Secrets {
-		secret, err := setupSecret(raw)
+		key, err := setupKey(raw)
 		if err != nil {
 			return nil, fmt.Errorf("kid %s: %v", kid, err)
 		}
-		if secret == nil {
+		if key == nil {
 			return nil, fmt.Errorf("kid %s: invalid key: Key is empty", kid)
 		}
-		plugin.keys[kid] = secret
+		plugin.keys[kid] = key
 	}
 	plugin.issuerKeys["internal"] = internalIssuerKeys(config.Secrets)
 
@@ -218,6 +221,15 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 	go plugin.fetchRoutine(delayPrefetch, refreshKeysInterval) // this is a noop if neither are required
 
 	return &plugin, nil
+}
+
+// internalIssuerKeys returns a dummy keyset for the keys in config.Secrets
+func internalIssuerKeys(secrets map[string]string) map[string]any {
+	keys := make(map[string]any, len(secrets))
+	for kid := range secrets {
+		keys[kid] = nil
+	}
+	return keys
 }
 
 // parseDuration parses a duration string or returns 0 if the string is empty.
@@ -244,20 +256,15 @@ func (plugin *JWTPlugin) fetchRoutine(delayPrefetch time.Duration, refreshKeysIn
 	}
 }
 
-// internalIssuerKeys returns a dummy keyset for the keys in config.Secrets
-func internalIssuerKeys(secrets map[string]string) map[string]any {
-	keys := make(map[string]any, len(secrets))
-	for kid := range secrets {
-		keys[kid] = nil
-	}
-	return keys
-}
-
 // ServeHTTP is the middleware entry point.
 func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	variables := plugin.createTemplateVariables(request)
 	status, err := plugin.validate(request, variables)
-	if err != nil {
+	if err == nil {
+		// Request is valid, pass to the next handler and we're done
+		plugin.next.ServeHTTP(response, request)
+	} else {
+		// Request is invalid, handle the error appropriately for the configuration and request type
 		if plugin.redirectUnauthorized != nil {
 			// Interactive clients should be redirected to the login page or unauthorized page.
 			var redirectTemplate *template.Template
@@ -273,32 +280,27 @@ func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.R
 				return
 			}
 			http.Redirect(response, request, url, http.StatusFound)
+		} else if hasToken(request.Header.Get("Content-Type"), "application/grpc") {
+			// If the request is a GRPC request, we return a GRPC compatible response.
+			header := response.Header()
+			header.Set("Content-Type", "application/grpc")
+			if status == http.StatusUnauthorized {
+				header.Set("grpc-status", "16")
+				header.Set("grpc-message", "UNAUTHENTICATED")
+			} else if status == http.StatusForbidden {
+				header.Set("grpc-status", "7")
+				header.Set("grpc-message", "PERMISSION_DENIED")
+			}
 		} else {
 			// Non-interactive (i.e. API) clients should get a 401 or 403 response.
-			// If the request is a GRPC request, we return a GRPC compatible response.
-			if hasToken(request.Header.Get("Content-Type"), "application/grpc") {
-				// Set the content type to application/grpc
-				header := response.Header()
-				header.Set("Content-Type", "application/grpc")
-				// If status code is 401, set grpc-status to 16 (UNAUTHENTICATED), else if status code is 403, set grpc-status to 7 (PERMISSION_DENIED)
-				if status == http.StatusUnauthorized {
-					header.Set("grpc-status", "16")
-					header.Set("grpc-message", "UNAUTHENTICATED")
-				} else if status == http.StatusForbidden {
-					header.Set("grpc-status", "7")
-					header.Set("grpc-message", "PERMISSION_DENIED")
-				}
-			} else {
-				// Regular HTTP response
-				http.Error(response, err.Error(), status)
-			}
+			http.Error(response, err.Error(), status)
 		}
-		return
 	}
-	plugin.next.ServeHTTP(response, request)
 }
 
-// validate validates the request and returns the HTTP status code or an error if the request is not valid. It also sets any headers that should be forwarded to the backend.
+// validate is the entry point for the validation process.
+// It validates the request and returns the HTTP status code or an error if the request is not valid.
+// It also sets any headers that should be forwarded to the backend, as this is where we have the claims at hand.
 func (plugin *JWTPlugin) validate(request *http.Request, variables *TemplateVariables) (int, error) {
 	token := plugin.extractToken(request)
 	if token == "" {
