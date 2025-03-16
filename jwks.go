@@ -49,9 +49,11 @@ func FetchJWKS(url string, client *http.Client) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("got %d from %s", response.StatusCode, url)
 	}
+
 	var jwks JSONWebKeySet
 	err = json.NewDecoder(response.Body).Decode(&jwks)
 	if err != nil {
