@@ -756,6 +756,105 @@ func TestServeHTTP(tester *testing.T) {
 			CookieName: "Authorization",
 		},
 		{
+			Name:         "RSA fixed secrets",
+			Expect:       http.StatusOK,
+			ExpectCounts: map[string]int{jwksCalls: 0},
+			Config: `
+				secrets:
+					43263adb454e2217b26212b925498a139438912d: |
+						-----BEGIN RSA PUBLIC KEY-----
+						MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDXmKeNKX/IRWeNcD6LQjAWWOAZ
+						SqnLCbjo0kQxXS7hZb8SLe03vogapSv9Ld6Cocs0aFjfkzbrQPdTskooAWfWr8Yq
+						x2y2JQTLhjxHpjp/napf5SLG9jbu02jpgWSY/Zks/21ARQ4mXS3T5OlXMJc94BA/
+						nT57PUdl55RWyQJxmwIDAQAB
+						-----END RSA PUBLIC KEY-----
+				skipPrefetch: true
+				require:
+					aud: test`,
+			Claims: `{"aud": "test"}`,
+			Method: jwt.SigningMethodRS256,
+			Private: `
+				-----BEGIN RSA PRIVATE KEY-----
+				MIICXAIBAAKBgQDXmKeNKX/IRWeNcD6LQjAWWOAZSqnLCbjo0kQxXS7hZb8SLe03
+				vogapSv9Ld6Cocs0aFjfkzbrQPdTskooAWfWr8Yqx2y2JQTLhjxHpjp/napf5SLG
+				9jbu02jpgWSY/Zks/21ARQ4mXS3T5OlXMJc94BA/nT57PUdl55RWyQJxmwIDAQAB
+				AoGATvc2x1lf2DazivaFsfP4MPc0fY7/ScKx23TITVxYA26E4V+49yXuK/Q7fGwE
+				h8xC5Vsi0iDViK0u6ZTv3F9HbIqhmuVoSBWL5PlAZWvEWMwTldHnmQDCQBraQndV
+				ZAtJi1CTdVH4LbtCgRfu74yjUktUZqQKHzGi94lkRz5/i4ECQQDx1f47EsBU4v14
+				cgXMFVkWAEH23dNGarOc9j6mldiVGQwbqsnO94aY3ki7tEd2n59ByEFpYeXiX/Ei
+				kSIXEKGxAkEA5Dk7yco5aK7PffhX/Z534JAd9R9We4FP2SBSBUFibAY47VQVDeXT
+				IosMxwExY63UeBJ6FMwgAFCZc/YaQlwvCwJAfWRkrsKZQSp1HMeaY+hJydOWYGdC
+				TgezW9Z+Q6f8pcpX8dyLSSok+wx+j/z49PPtApHQANFG/iqbAD5ae7Ue8QJAXuQR
+				IOCtKAJvEVBdvXzTGRKy8gU6nxVwDrYqhDbgZkvcBYmNS38AX39zK5cqYuiWy+na
+				yqTotVjNxPJRjr/nawJBAOwxui0TfED16oSMbFD6kxfcjnxtHSTu/2AlO/+0ydpE
+				9CbIg52IdIg+zM55iKwjllF59cVayR2AeAywT3VyNd8=
+				-----END RSA PRIVATE KEY-----`,
+			Kid:        "43263adb454e2217b26212b925498a139438912d",
+			CookieName: "Authorization",
+		},
+		{
+			Name:         "EC fixed secrets no type",
+			Expect:       http.StatusOK,
+			ExpectCounts: map[string]int{jwksCalls: 0},
+			Config: `
+				secrets:
+					43263adb454e2217b26212b925498a139438912d: |
+						-----BEGIN PUBLIC KEY-----
+						MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE7gFCo/g2PQmC3i5kIqVgCCzr2D1
+						nbCeipqfvK1rkqmKfhb7rlVehfC7ITUAy8NIvQ/AsXClvgHDv55BfOoL6w==
+						-----END PUBLIC KEY-----
+				skipPrefetch: true
+				require:
+					aud: test`,
+			Claims: `{"aud": "test"}`,
+			Method: jwt.SigningMethodES256,
+			Private: `
+				-----BEGIN EC PRIVATE KEY-----
+				MHcCAQEEIOGYoXIkNQh/7WBgOwZ+epQFMdkgGcdHwLQFL69oYEodoAoGCCqGSM49
+				AwEHoUQDQgAEE7gFCo/g2PQmC3i5kIqVgCCzr2D1nbCeipqfvK1rkqmKfhb7rlVe
+				hfC7ITUAy8NIvQ/AsXClvgHDv55BfOoL6w==
+				-----END EC PRIVATE KEY-----`,
+			Kid:        "43263adb454e2217b26212b925498a139438912d",
+			CookieName: "Authorization",
+		},
+		{
+			Name:         "RSA fixed secrets no type",
+			Expect:       http.StatusOK,
+			ExpectCounts: map[string]int{jwksCalls: 0},
+			Config: `
+				secrets:
+					43263adb454e2217b26212b925498a139438912d: |
+						-----BEGIN PUBLIC KEY-----
+						MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDXmKeNKX/IRWeNcD6LQjAWWOAZ
+						SqnLCbjo0kQxXS7hZb8SLe03vogapSv9Ld6Cocs0aFjfkzbrQPdTskooAWfWr8Yq
+						x2y2JQTLhjxHpjp/napf5SLG9jbu02jpgWSY/Zks/21ARQ4mXS3T5OlXMJc94BA/
+						nT57PUdl55RWyQJxmwIDAQAB
+						-----END PUBLIC KEY-----
+				skipPrefetch: true
+				require:
+					aud: test`,
+			Claims: `{"aud": "test"}`,
+			Method: jwt.SigningMethodRS256,
+			Private: `
+				-----BEGIN RSA PRIVATE KEY-----
+				MIICXAIBAAKBgQDXmKeNKX/IRWeNcD6LQjAWWOAZSqnLCbjo0kQxXS7hZb8SLe03
+				vogapSv9Ld6Cocs0aFjfkzbrQPdTskooAWfWr8Yqx2y2JQTLhjxHpjp/napf5SLG
+				9jbu02jpgWSY/Zks/21ARQ4mXS3T5OlXMJc94BA/nT57PUdl55RWyQJxmwIDAQAB
+				AoGATvc2x1lf2DazivaFsfP4MPc0fY7/ScKx23TITVxYA26E4V+49yXuK/Q7fGwE
+				h8xC5Vsi0iDViK0u6ZTv3F9HbIqhmuVoSBWL5PlAZWvEWMwTldHnmQDCQBraQndV
+				ZAtJi1CTdVH4LbtCgRfu74yjUktUZqQKHzGi94lkRz5/i4ECQQDx1f47EsBU4v14
+				cgXMFVkWAEH23dNGarOc9j6mldiVGQwbqsnO94aY3ki7tEd2n59ByEFpYeXiX/Ei
+				kSIXEKGxAkEA5Dk7yco5aK7PffhX/Z534JAd9R9We4FP2SBSBUFibAY47VQVDeXT
+				IosMxwExY63UeBJ6FMwgAFCZc/YaQlwvCwJAfWRkrsKZQSp1HMeaY+hJydOWYGdC
+				TgezW9Z+Q6f8pcpX8dyLSSok+wx+j/z49PPtApHQANFG/iqbAD5ae7Ue8QJAXuQR
+				IOCtKAJvEVBdvXzTGRKy8gU6nxVwDrYqhDbgZkvcBYmNS38AX39zK5cqYuiWy+na
+				yqTotVjNxPJRjr/nawJBAOwxui0TfED16oSMbFD6kxfcjnxtHSTu/2AlO/+0ydpE
+				9CbIg52IdIg+zM55iKwjllF59cVayR2AeAywT3VyNd8=
+				-----END RSA PRIVATE KEY-----`,
+			Kid:        "43263adb454e2217b26212b925498a139438912d",
+			CookieName: "Authorization",
+		},
+		{
 			Name:              "bad fixed secrets",
 			ExpectPluginError: "kid b6a5717df9dc13c9b15aab32dc811fd38144d43c: invalid key: Key must be a PEM encoded PKCS1 or PKCS8 key",
 			Config: `
@@ -1569,11 +1668,18 @@ func createTokenAndSaveKey(test *Test, config *Config) string {
 			}))
 		} else {
 			// Use the provided private key
-			secret, err := jwt.ParseECPrivateKeyFromPEM([]byte(trimLines(test.Private)))
+			var err error
+			if method == jwt.SigningMethodES256 {
+				private, err = jwt.ParseECPrivateKeyFromPEM([]byte(trimLines(test.Private)))
+			} else if method == jwt.SigningMethodRS256 {
+				private, err = jwt.ParseRSAPrivateKeyFromPEM([]byte(trimLines(test.Private)))
+			} else {
+				panic("Unsupported signing method for test")
+			}
+
 			if err != nil {
 				panic(err)
 			}
-			private = secret
 		}
 	default:
 		panic("Unsupported signing method")

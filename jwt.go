@@ -109,13 +109,16 @@ func setupSecret(secret string) (any, error) {
 		return nil, nil
 	}
 
-	// If plugin.secret is a PEM-encoded public key, return the public key
-	if strings.HasPrefix(secret, "-----BEGIN RSA PUBLIC KEY") {
-		return jwt.ParseRSAPublicKeyFromPEM([]byte(secret))
-	}
-
+	// If raw is a PEM-encoded public key, return the public key
 	if strings.HasPrefix(secret, "-----BEGIN EC PUBLIC KEY") || strings.HasPrefix(secret, "-----BEGIN PUBLIC KEY") {
-		return jwt.ParseECPublicKeyFromPEM([]byte(secret))
+		public, err := jwt.ParseECPublicKeyFromPEM([]byte(secret))
+		if err == nil || strings.HasPrefix(secret, "-----BEGIN RSA PUBLIC KEY") {
+			return public, err
+		}
+		// If it's only marked "BEGIN PUBLIC KEY" and we failed, we fall through to try the RSA key
+	}
+	if strings.HasPrefix(secret, "-----BEGIN RSA PUBLIC KEY") || strings.HasPrefix(secret, "-----BEGIN PUBLIC KEY") {
+		return jwt.ParseRSAPublicKeyFromPEM([]byte(secret))
 	}
 
 	// Otherwise, we assume it's a shared HMAC secret
@@ -184,7 +187,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		infoToStdout:         config.InfoToStdout,
 	}
 
-	// If we have secrets, add them to the key cache
+	// If we have keys/secrets, add them to the key cache
 	for kid, raw := range config.Secrets {
 		secret, err := setupSecret(raw)
 		if err != nil {
