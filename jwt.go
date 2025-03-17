@@ -95,7 +95,7 @@ type TemplateRequirement struct {
 // CreateConfig creates the default plugin configuration.
 func CreateConfig() *Config {
 	return &Config{
-		ValidMethods: []string{"RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "HS256"},
+		ValidMethods: []string{"RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "HS256", "HS512"},
 		CookieName:   "Authorization",
 		HeaderName:   "Authorization",
 		ForwardToken: true,
