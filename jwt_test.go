@@ -495,6 +495,28 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
+			Name:   "SigningMethodHS384",
+			Expect: http.StatusOK,
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodHS384,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "SigningMethodHS512",
+			Expect: http.StatusOK,
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodHS512,
+			HeaderName: "Authorization",
+		},
+		{
 			Name:   "SigningMethodRS256",
 			Expect: http.StatusOK,
 			Config: `
