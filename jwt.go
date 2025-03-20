@@ -299,7 +299,7 @@ func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.R
 }
 
 // validate is the entry point for the validation process.
-// It validates the request and returns the HTTP status code or an error if the request is not valid.
+// It validates the request and returns the HTTP status code and an error if the request is not valid (i.e. if not http.StatusOK).
 // It also sets any headers that should be forwarded to the backend, as this is where we have the claims at hand.
 func (plugin *JWTPlugin) validate(request *http.Request, variables *TemplateVariables) (int, error) {
 	token := plugin.extractToken(request)
