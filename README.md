@@ -43,10 +43,34 @@ http:
             aud: test.example.com
 ```
 
-3) use the middleware in services via docker-compose labels
+3a. Use the middleware in services via docker-compose labels
 ```yaml
   labels:
     - "traefik.http.routers.my-service.middlewares=secure-api@file"
+```
+
+3b. or via Kubernetes Ingress annotations
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-service
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: secure-api@file
+...
+```
+
+3c. or via Traefik's Kubernetes IngressRoute CRD
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: my-service
+spec:
+  routes:
+  - middlewares:
+    - name: secure-api@file
+    ...
 ```
 
 ### Options
