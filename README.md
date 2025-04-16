@@ -19,7 +19,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/agilezebra/jwt-middleware
-      version: v1.2.13
+      version: v1.2.14
 ```
 1b. or with command-line options:
 
@@ -27,7 +27,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/agilezebra/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.2.13"
+  - "--experimental.plugins.jwt.version=v1.2.14"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
@@ -79,18 +79,18 @@ The plugin supports the following configuration options.
 
 Name | Description
 ---- | ----
-`issuers` | A list of trusted issuers to fetch keys (JWKs) from. Keys will be prefetched from these issuers on startup (unless `skipPrefetch` is set). If an inbound request presents a token signed with a key (`kid`) that is not known and its `iss` claim matches one of the `issuers`, the plugin will refresh the keys for that issuer. On each fetch, any keys previously fetched from the issuer that are no longer retrieved will be removed from the plugin's cache. Keys are fully reference counted by `kid`: if they same `kid` is present from another provider (or from `secrets` below) it will not be removed from the cache until no longer referenced. fnmatch-style wildcards are supported for `issuers` to accommodate some multitenancy scenarios (e.g. `https://*.example.com`). It is not recommended to use wildcard `issuers` unless you understand the implication that any webserver on your domain could be used to spoof a JWK endpoint and you have full confidence in what is running on all servers within the domain in question. 
+`issuers` | A list of trusted issuers to fetch keys (JWKs) from. Keys will be prefetched from these issuers on startup (unless `skipPrefetch` is set). If an inbound request presents a token signed with a key (`kid`) that is not known and its `iss` claim matches one of the `issuers`, the plugin will refresh the keys for that issuer. On each fetch, any keys previously fetched from the issuer that are no longer retrieved will be removed from the plugin's cache. Keys are fully reference counted by `kid`: if the same `kid` is present from another provider (or from `secrets` below) it will not be removed from the cache until no longer referenced. fnmatch-style wildcards are supported for `issuers` to accommodate some multitenancy scenarios (e.g. `https://*.example.com`). It is not recommended to use wildcard `issuers` unless you understand the implication that any webserver on your domain could be used to spoof a JWK endpoint and you have full confidence in what is running on all servers within the domain in question. 
 `secret` | A shared HMAC secret or a fixed public key to use for signature validation. A fixed secret may be used in conjunction with `issuers` to combine static and dynamic keys. This can be useful when transitioning from earlier systems or for machine-to-machine tokens signed with internal keys. Note that if a dynamic key is not matched for a presented token's key, but a static secret is configured, the static secret will be tried as a fallback key. If this secret is not of the correct type for the presented key, an error such as `token signature is invalid: key is of invalid type` will be returned to the user, which may be confusing. 
-`secrets` | A map of kid -> secret. As `secret` above, these may be used in combination with `issuers`. Any secrets provided here will be preloaded into the plugin's cache. Any presented tokens with matching `kid`s will therefore not need have the key fetched from the issuer. This mechanism is preferred over a single anonymous `secret` when a `kid` is used, as it avoids the fallback type message described above.
+`secrets` | A map of kid -> secret. As `secret` above, these may be used in combination with `issuers`. Any secrets provided here will be preloaded into the plugin's cache. Any presented tokens with matching `kid`s will therefore not need to have the key fetched from the issuer. This mechanism is preferred over a single anonymous `secret` when a `kid` is used, as it avoids the fallback type message described above.
 `skipPrefetch` | Don't prefetch keys from `issuers`. This is useful if all the expected secrets are provided in `secrets`, especially in situations where traefik or its services are frequently restarted, to save from hitting the issuer JWKS endpoint unnecessarily.
-`delayPrefetch` | Delay prefetching from keys from `issuers` by the given duration (expressed in `time.ParseDuration` format - e.g. "300ms", "5s"). This is particularly useful if your openid server is behind the very traefik service that is loading the plugin and you need to give it time to be ready for your request. This has no effect if `skipPrefetch` is set.
+`delayPrefetch` | Delay prefetching keys from `issuers` by the given duration (expressed in `time.ParseDuration` format - e.g. "300ms", "5s"). This is particularly useful if your openid server is behind the very traefik service that is loading the plugin and you need to give it time to be ready for your request. This has no effect if `skipPrefetch` is set.
 `refreshKeysInterval` | Arbitrarily refresh all keys from all `issuers` in a background thread every given duration (after any prefetch).
 `require` | A map of zero or more claims that must all be present and match against one or more values. If no claims are specified in `require`, all tokens that are validly signed by the trusted issuers or secrets will pass. If more than one claim is specified, each is required (i.e. an AND relationship exists for all the specified claims). For each claim, multiple values may be specified and the claim will be valid if any matches (i.e. an OR relationship exists for required values within a claim). fnmatch-style wildcards are optionally supported for claims in issued JWTs. If you do not wish to support wildcard claims, simply do not put such wildcards into the JWTs that you issue. See below for examples and the variables available with template interpolation.
 `headerMap` | A map in the form of header -> claim. Headers will be added (or overwritten) to the forwarded HTTP request from the claim values in the token. If the claim is not present, no action for that value is taken (and any existing header will remain unchanged).
 `cookieName` | Name of the cookie to retrieve the token from if present. Default: `Authorization`. If token retrieval from cookies must be disabled for some reason, set to an empty string.  If `forwardAuth` is `false`, the cookie will be removed before forwarding to the backend.
 `headerName` | Name of the Header to retrieve the token from if present. Default: `Authorization`. If token retrieval from headers must be disabled for some reason, set to an empty string. Tokens are supported either with or without a `Bearer ` prefix. If `forwardAuth` is `false`, the header will be removed before forwarding to the backend.
 `parameterName` | Name of the query string parameter to retrieve the token from if present. Default: disabled. If `forwardAuth` is `false`, the query string parameter will be removed before forwarding to the backend.
-`redirectUnauthorized` | URL to redirect Unauthorized (401) claims to instead of returning a 401 status code. This is intended for interactive requests where the user should be redirected to login and then returned to the page that access was attempted from. Go template interpolation may be used to construct a `return_to` or similar parameter for the redirection. See examples and template variables below. 
+`redirectUnauthorized` | URL to redirect Unauthorized (401) claims to instead of returning a 401 status code. This is intended for interactive requests where the user should be redirected to login and then returned to the page that access was attempted from. Go template interpolation may be used to construct a `return_to`, or similar, parameter for the redirection. See examples and template variables below. 
 `redirectForbidden` | URL to redirect Forbidden (403) claims to instead of returning a 403 status code. As above, this is intended for interactive requests and the same template interpolation applies. This is most useful to redirect a user to explain that they do not have access to the resource, even though they are authenticated. Such pages may, for example, offer explanations of how access may be obtained or may offer to allow the user to try using a different identity. If `redirectUnauthorized` is given but not `redirectForbidden` the URL for `redirectUnauthorized` will be used, rather than returning an HTTP status to an interactive session.
 `freshness` | Integer value in seconds to consider a token as "fresh" based on its `iat` claim, if present. If a token is not within this freshness window, the plugin allows that a user may have recently had new permissions and thus new claims granted since last logging in, and will issue a 401 in place of a 403 (as well as redirecting interactive sessions as if Unauthorized). Once a user has logged in again, their token will be within the freshness window and a definitive 403 can be returned or not on subsequent attempts. Default 3600 = 1 hour. Set freshness = 0 to disable.
 `forwardToken` | Boolean indicating whether the token should be forwarded to the backend. Default true. If multiple tokens are present in different locations (e.g. cookie and header) and forwarding is false, only the token used will be removed. 
@@ -115,7 +115,7 @@ Name | Description
 These variables are useful with dynamic claim requirements, particularly in multitenancy scenarios. However, if interpolating `Host` as a requirement, care must be taken to ensure that the service can only be reached through that hostname and not directly by some public IP. I.e. routing should be well-controlled, such as behind an API gateway, proxy or other ingress selecting on `Host`, or where all traefik rules are guaranteed to match using `Host`. Otherwise, it would be easy to spoof a different `Host` by fabricating a DNS record for that IP externally; a static requirement should be used instead in such an architecture.
 
 Additionally, all environment variables are accessible with template interpolation, which makes programmatically setting a static value in the traefik dynamic config file easier.
-Note that the per-request variables will overwrite traefiks view of an environment variable with the same name, so any shadowed enviorment variables need to be renamed appropriately.`
+Note that the per-request variables will overwrite traefiks view of an environment variable with the same name, so any shadowed environment variables need to be renamed appropriately.`
 
 
 ### Claim Matching
@@ -135,7 +135,7 @@ require:
 ```
 
 #### Dynamic Requirement
-E.g. for requiring that a token's audience matches the domain being accessed (see notes in [Template Interpolation](###Template-Interpolation) above for caution on how and when this is safe to use dynamically like this)
+E.g. for requiring that a token's audience matches the domain being accessed (see notes in [Template Interpolation](#template-interpolation) above for caution on how and when this is safe to use dynamically like this)
 
 Will succeed when called on https://customer.example.com/example but fail on https://other.example.com/example
 Note that it is necessary to escape the Go template to prevent traefik from attempting to interpret it.
@@ -284,8 +284,7 @@ http:
 ```
 
 ## Forking
-If you require some different behaviour, please do raise an issue or pull request in GitHub in the first instance rather than simply forking and modifying, and we'll try to accommodate it promptly (so 
-as to reduce fragmentation of functionality).
+If you require some different behaviour, please do raise an issue or pull request in GitHub in the first instance rather than simply just forking, and we'll try to accommodate it promptly (so as to reduce fragmentation of functionality).
 
 ## Acknowledgements
 
