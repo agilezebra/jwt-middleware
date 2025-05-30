@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"html"
 	"html/template"
@@ -331,16 +332,30 @@ func (plugin *JWTPlugin) validate(request *http.Request, variables *TemplateVari
 			}
 		}
 
-		// Map any require claims to headers
-		for header, claim := range plugin.headerMap {
-			value, ok := claims[claim]
-			if ok {
+		plugin.mapClaimsToHeaders(claims, request)
+	}
+
+	return http.StatusOK, nil
+}
+
+// mapClaimsToHeaders maps any claims to headers as specified in the headerMap configuration.
+func (plugin *JWTPlugin) mapClaimsToHeaders(claims jwt.MapClaims, request *http.Request) {
+	for header, claim := range plugin.headerMap {
+		value, ok := claims[claim]
+		if ok {
+			switch value := value.(type) {
+			case []any, map[string]any, nil:
+				json, err := json.Marshal(value)
+				if err == nil {
+					request.Header.Add(header, string(json))
+				}
+				// Although we check err, we don't have a branch to log an error for err != nil, because it's not possible
+				// that the value won't be marshallable to json, given it has already been unmarshalled _from_ json to get here
+			default:
 				request.Header.Add(header, fmt.Sprint(value))
 			}
 		}
 	}
-
-	return http.StatusOK, nil
 }
 
 // Validate checks value against the requirement, calling ourself recursively for object and array values.
