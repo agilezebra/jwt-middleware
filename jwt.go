@@ -356,9 +356,9 @@ func (plugin *JWTPlugin) mapClaimsToHeaders(claims jwt.MapClaims, request *http.
 				// that the value won't be marshallable to json, given it has already been unmarshalled _from_ json to get here
 			default:
 				request.Header.Add(header, fmt.Sprint(value))
-			} else if plugin.removeMissingHeaders {
-				request.Header.Del(header)
 			}
+		} else if plugin.removeMissingHeaders {
+			request.Header.Del(header)
 		}
 	}
 }
