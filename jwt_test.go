@@ -1154,6 +1154,23 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
+			Name:          "remove missing headers",
+			Expect:        http.StatusOK,
+			Headers:       map[string]string{"X-Other": "other", "X-Id": "impersonated"},
+			ExpectHeaders: map[string]string{"X-Other": "other", "X-Audience": "test"},
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test
+				headerMap:
+					X-Audience: aud
+					X-Id: user
+				removeMissingHeaders: true`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
 			Name:          "cookies",
 			Expect:        http.StatusOK,
 			ExpectCookies: map[string]string{"Test": "test", "Other": "other"},

@@ -19,7 +19,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/agilezebra/jwt-middleware
-      version: v1.2.15
+      version: v1.2.16
 ```
 1b. or with command-line options:
 
@@ -27,7 +27,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/agilezebra/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.2.15"
+  - "--experimental.plugins.jwt.version=v1.2.16"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
@@ -87,6 +87,7 @@ Name | Description
 `refreshKeysInterval` | Arbitrarily refresh all keys from all `issuers` in a background thread every given duration (after any prefetch).
 `require` | A map of zero or more claims that must all be present and match against one or more values. If no claims are specified in `require`, all tokens that are validly signed by the trusted issuers or secrets will pass. If more than one claim is specified, each is required (i.e. an AND relationship exists for all the specified claims). For each claim, multiple values may be specified and the claim will be valid if any matches (i.e. an OR relationship exists for required values within a claim). fnmatch-style wildcards are optionally supported for claims in issued JWTs. If you do not wish to support wildcard claims, simply do not put such wildcards into the JWTs that you issue. See below for examples and the variables available with template interpolation.
 `headerMap` | A map in the form of header -> claim. Headers will be added (or overwritten) to the forwarded HTTP request from the claim values in the token. If the claim is not present, no action for that value is taken (and any existing header will remain unchanged).
+`removeMissingHeaders` | When set to `true`, remove any headers provided in the request that are named in the `headerMap` but are not present in the token as claims. This may be an important security consideration for some uses of headers if your JWT provider cannot be relied upon to provide an expected claim in all situations. Default: `false`.
 `cookieName` | Name of the cookie to retrieve the token from if present. Default: `Authorization`. If token retrieval from cookies must be disabled for some reason, set to an empty string.  If `forwardAuth` is `false`, the cookie will be removed before forwarding to the backend.
 `headerName` | Name of the Header to retrieve the token from if present. Default: `Authorization`. If token retrieval from headers must be disabled for some reason, set to an empty string. Tokens are supported either with or without a `Bearer ` prefix. If `forwardAuth` is `false`, the header will be removed before forwarding to the backend.
 `parameterName` | Name of the query string parameter to retrieve the token from if present. Default: disabled. If `forwardAuth` is `false`, the query string parameter will be removed before forwarding to the backend.
