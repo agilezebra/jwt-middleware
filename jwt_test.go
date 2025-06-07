@@ -1141,15 +1141,20 @@ func TestServeHTTP(tester *testing.T) {
 		{
 			Name:          "map headers",
 			Expect:        http.StatusOK,
-			ExpectHeaders: map[string]string{"X-Id": "1234"},
+			ExpectHeaders: map[string]string{"X-Number": "1234", "X-Array": `["test",1,null]`, "X-Map": `{"a":1,"b":2}`, "X-Boolean": "true", "X-Null": "null", "X-Text": "Hello, world!"},
 			Config: `
 				secret: fixed secret
 				require:
 					aud: test
 				headerMap:
-					X-Id: user
+					X-Number: number
+					X-Array: array
+					X-Map: map
+					X-Boolean: boolean
+					X-Null: nulled
+					X-Text: text
 				forwardToken: false`,
-			Claims:     `{"aud": "test", "user": "1234"}`,
+			Claims:     `{"aud": "test", "number": "1234", "array": ["test", 1, null], "map": {"a": 1, "b": 2}, "boolean": true, "nulled": null, "text": "Hello, world!"}`,
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
