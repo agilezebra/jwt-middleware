@@ -41,6 +41,7 @@ type Config struct {
 	HeaderName           string            `json:"headerName,omitempty"`
 	ParameterName        string            `json:"parameterName,omitempty"`
 	HeaderMap            map[string]string `json:"headerMap,omitempty"`
+	RemoveMissingHeaders bool              `json:"removeMissingHeaders,omitempty"`
 	ForwardToken         bool              `json:"forwardToken,omitempty"`
 	Freshness            int64             `json:"freshness,omitempty"`
 	InfoToStdout         bool              `json:"infoToStdout,omitempty"`
@@ -66,6 +67,7 @@ type JWTPlugin struct {
 	headerName           string                    // The name of the header to extract the token from
 	parameterName        string                    // The name of the query parameter to extract the token from
 	headerMap            map[string]string         // A map of claim names to header names to forward to the backend
+	removeMissingHeaders bool                      // If true, remove missing headers from the request
 	forwardToken         bool                      // If true, the token is forwarded to the backend
 	freshness            int64                     // The maximum age of a token in seconds
 	environment          map[string]string         // Map of environment variables
@@ -185,6 +187,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		headerName:           config.HeaderName,
 		parameterName:        config.ParameterName,
 		headerMap:            config.HeaderMap,
+		removeMissingHeaders: config.RemoveMissingHeaders,
 		forwardToken:         config.ForwardToken,
 		freshness:            config.Freshness,
 		environment:          environment(),
@@ -354,6 +357,8 @@ func (plugin *JWTPlugin) mapClaimsToHeaders(claims jwt.MapClaims, request *http.
 			default:
 				request.Header.Add(header, fmt.Sprint(value))
 			}
+		} else if plugin.removeMissingHeaders {
+			request.Header.Del(header)
 		}
 	}
 }
