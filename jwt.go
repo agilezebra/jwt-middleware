@@ -494,7 +494,7 @@ func (plugin *JWTPlugin) validateClaim(claim string, claims jwt.MapClaims, requi
 // If the key isn't present and the iss is valid according to the plugin's configuration, all keys for the iss are refreshed and the key is looked up again.
 func (plugin *JWTPlugin) getKey(token *jwt.Token) (any, error) {
 	err := fmt.Errorf("no secret configured")
-	if len(plugin.issuers) > 0 {
+	if len(plugin.issuers) > 0 || len(plugin.keys) > 0 {
 		kid, ok := token.Header["kid"]
 		if ok {
 			refreshed := ""
