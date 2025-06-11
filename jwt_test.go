@@ -776,6 +776,7 @@ func TestServeHTTP(tester *testing.T) {
 				-----END EC PRIVATE KEY-----`,
 			Kid:        "43263adb454e2217b26212b925498a139438912d",
 			CookieName: "Authorization",
+			Actions:    map[string]string{noAddIsser: yes},
 		},
 		{
 			Name:         "RSA fixed secrets",
@@ -813,6 +814,7 @@ func TestServeHTTP(tester *testing.T) {
 				-----END RSA PRIVATE KEY-----`,
 			Kid:        "43263adb454e2217b26212b925498a139438912d",
 			CookieName: "Authorization",
+			Actions:    map[string]string{noAddIsser: yes},
 		},
 		{
 			Name:         "EC fixed secrets no type",
@@ -838,6 +840,7 @@ func TestServeHTTP(tester *testing.T) {
 				-----END EC PRIVATE KEY-----`,
 			Kid:        "43263adb454e2217b26212b925498a139438912d",
 			CookieName: "Authorization",
+			Actions:    map[string]string{noAddIsser: yes},
 		},
 		{
 			Name:         "RSA fixed secrets no type",
@@ -875,6 +878,7 @@ func TestServeHTTP(tester *testing.T) {
 				-----END RSA PRIVATE KEY-----`,
 			Kid:        "43263adb454e2217b26212b925498a139438912d",
 			CookieName: "Authorization",
+			Actions:    map[string]string{noAddIsser: yes},
 		},
 		{
 			Name:              "bad fixed secrets",
@@ -888,6 +892,7 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodRS512,
 			CookieName: "Authorization",
+			Actions:    map[string]string{noAddIsser: yes},
 		},
 		{
 			Name:              "empty fixed secrets",
@@ -900,6 +905,7 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodRS512,
 			CookieName: "Authorization",
+			Actions:    map[string]string{noAddIsser: yes},
 		},
 		{
 			Name:   "skipPrefetch",
