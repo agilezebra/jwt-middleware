@@ -118,7 +118,7 @@ func setupKey(raw string) (any, error) {
 	// If raw is a PEM-encoded public key, return the public key
 	if strings.HasPrefix(raw, "-----BEGIN EC PUBLIC KEY") || strings.HasPrefix(raw, "-----BEGIN PUBLIC KEY") {
 		public, err := jwt.ParseECPublicKeyFromPEM([]byte(raw))
-		if err == nil || strings.HasPrefix(raw, "-----BEGIN RSA PUBLIC KEY") {
+		if err == nil || strings.HasPrefix(raw, "-----BEGIN EC PUBLIC KEY") {
 			return public, err
 		}
 		// If it's only marked "BEGIN PUBLIC KEY" and we failed, we fall through to try the RSA key
