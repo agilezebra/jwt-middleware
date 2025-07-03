@@ -597,7 +597,7 @@ func (plugin *JWTPlugin) fetchKeys(issuer string) error {
 	if err != nil {
 		// Fall back to direct JWKS URL if OpenID configuration fetch fails
 		url = issuer + ".well-known/jwks.json"
-		plugin.logInfo("failed to fetch openid-configuration from url:%s, falling back to direct JWKS URL:%s", configURL, url)
+		plugin.logInfo("failed to fetch openid-configuration from url:%s; falling back to direct JWKS URL:%s", configURL, url)
 	} else {
 		plugin.logInfo("fetched openid-configuration from url:%s", configURL)
 		url = config.JWKSURI
