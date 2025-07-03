@@ -1026,7 +1026,7 @@ func TestServeHTTP(tester *testing.T) {
 		},
 		{
 			Name:   "config bad body",
-			Expect: http.StatusUnauthorized,
+			Expect: http.StatusOK,
 			Config: `
 				require:
 					aud: test`,
@@ -1059,7 +1059,7 @@ func TestServeHTTP(tester *testing.T) {
 		},
 		{
 			Name:   "config server internal error",
-			Expect: http.StatusUnauthorized,
+			Expect: http.StatusOK,
 			Config: `
 				require:
 					aud: test`,

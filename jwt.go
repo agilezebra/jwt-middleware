@@ -592,12 +592,17 @@ func (plugin *JWTPlugin) fetchAllKeys() {
 func (plugin *JWTPlugin) fetchKeys(issuer string) error {
 	configURL := issuer + ".well-known/openid-configuration" // issuer has trailing slash
 	config, err := FetchOpenIDConfiguration(configURL, plugin.clientForURL(configURL))
-	if err != nil {
-		return err
-	}
-	plugin.logInfo("fetched openid-configuration from url:%s", configURL)
 
-	url := config.JWKSURI
+	var url string
+	if err != nil {
+		// Fall back to direct JWKS URL if OpenID configuration fetch fails
+		url = issuer + ".well-known/jwks.json"
+		plugin.logInfo("failed to fetch openid-configuration from url:%s; falling back to direct JWKS URL:%s", configURL, url)
+	} else {
+		plugin.logInfo("fetched openid-configuration from url:%s", configURL)
+		url = config.JWKSURI
+	}
+
 	jwks, err := FetchJWKS(url, plugin.clientForURL(url))
 	if err != nil {
 		return err

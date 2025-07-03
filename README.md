@@ -6,7 +6,7 @@
 
 This is a middleware plugin for [Traefik](https://github.com/containous/traefik) with the following features:
 * Validation of JSON Web Tokens in cookies, headers, and/or query string parameters for access control.
-* Dynamic lookup of public keys from the well-known OpenID configuration of whitelisted issuers.
+* Dynamic lookup of public keys from the well-known OpenID configuration/jwks of whitelisted issuers.
 * Flexible claim checks, including optional wildcards and Go template interpolation.
 * Configurable HTTP redirects for unauthorized and forbidden calls for interactive requests.
 * gRPC compatibility.
@@ -19,7 +19,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/agilezebra/jwt-middleware
-      version: v1.2.16
+      version: v1.2.18
 ```
 1b. or with command-line options:
 
@@ -27,7 +27,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/agilezebra/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.2.16"
+  - "--experimental.plugins.jwt.version=v1.2.18"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
