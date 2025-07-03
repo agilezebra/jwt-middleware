@@ -1414,7 +1414,7 @@ func expectDisallow(test *Test) bool {
 // createConfig creates a configuration from a YAML string using the same method traefik
 func createConfig(text string) (*Config, error) {
 	var config map[string]any
-	err := yaml.Unmarshal([]byte(strings.Replace(text, "\t", "    ", -1)), &config)
+	err := yaml.Unmarshal([]byte(strings.ReplaceAll(text, "\t", "    ")), &config)
 	if err != nil {
 		return nil, err
 	}
@@ -1719,11 +1719,12 @@ func createTokenAndSaveKey(test *Test, config *Config) string {
 		} else {
 			// Use the provided private key
 			var err error
-			if method == jwt.SigningMethodES256 {
+			switch method {
+			case jwt.SigningMethodES256:
 				private, err = jwt.ParseECPrivateKeyFromPEM([]byte(trimLines(test.Private)))
-			} else if method == jwt.SigningMethodRS256 {
+			case jwt.SigningMethodRS256:
 				private, err = jwt.ParseRSAPrivateKeyFromPEM([]byte(trimLines(test.Private)))
-			} else {
+			default:
 				panic("Unsupported signing method for test")
 			}
 

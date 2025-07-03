@@ -288,10 +288,11 @@ func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.R
 			// If the request is a GRPC request, we return a GRPC compatible response.
 			header := response.Header()
 			header.Set("Content-Type", "application/grpc")
-			if status == http.StatusUnauthorized {
+			switch status {
+			case http.StatusUnauthorized:
 				header.Set("grpc-status", "16")
 				header.Set("grpc-message", "UNAUTHENTICATED")
-			} else if status == http.StatusForbidden {
+			case http.StatusForbidden:
 				header.Set("grpc-status", "7")
 				header.Set("grpc-message", "PERMISSION_DENIED")
 			}
