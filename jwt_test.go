@@ -60,20 +60,20 @@ type Test struct {
 }
 
 const (
-	jwksCalls             = "jwksCalls"
-	useFixedSecret        = "useFixedSecret"
-	noAddIsser            = "noAddIsser"
-	rotateKey             = "rotateKey"
-	excludeIss            = "excludeIss"
-	configBadOpenIDConfig = "configBadOpenIDConfig"
-	keysBadURL            = "keysBadURL"
-	keysBadBody           = "keysBadBody"
-	configServerStatus    = "configServerStatus"
-	keysServerStatus      = "keysServerStatus"
-	invalidJSON           = "invalidJSON"
-	traefikURL            = "traefikURL"
-	yes                   = "yes"
-	invalid               = "invalid/dummy"
+	jwksCalls          = "jwksCalls"
+	useFixedSecret     = "useFixedSecret"
+	noAddIsser         = "noAddIsser"
+	rotateKey          = "rotateKey"
+	excludeIss         = "excludeIss"
+	configBadBody      = "configBadBody"
+	keysBadURL         = "keysBadURL"
+	keysBadBody        = "keysBadBody"
+	configServerStatus = "configServerStatus"
+	keysServerStatus   = "keysServerStatus"
+	invalidJSON        = "invalidJSON"
+	traefikURL         = "traefikURL"
+	yes                = "yes"
+	invalid            = "invalid/dummy"
 )
 
 func TestServeHTTP(tester *testing.T) {
@@ -1033,7 +1033,7 @@ func TestServeHTTP(tester *testing.T) {
 			Claims:     `{"aud": "test"}`,
 			Method:     jwt.SigningMethodES256,
 			HeaderName: "Authorization",
-			Actions:    map[string]string{configBadOpenIDConfig: yes},
+			Actions:    map[string]string{configBadBody: yes},
 		},
 		{
 			Name:   "keys bad url",
@@ -1529,7 +1529,7 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 		fmt.Fprintln(response, string(payload))
 	})
 	mux.HandleFunc("/.well-known/openid-configuration", func(response http.ResponseWriter, request *http.Request) {
-		if _, ok := test.Actions[configBadOpenIDConfig]; ok {
+		if _, ok := test.Actions[configBadBody]; ok {
 			response.Header().Add("Content-Length", "1")
 			return
 		}
