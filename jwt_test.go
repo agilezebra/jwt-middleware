@@ -1483,11 +1483,11 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	// Set up the environment
 	if test.Environment != nil {
 		for key, value := range test.Environment {
-			os.Setenv(key, value)
+			os.Setenv(key, value) //nolint:errcheck
 		}
 		defer func() {
 			for key := range test.Environment {
-				os.Unsetenv(key)
+				os.Unsetenv(key) //nolint:errcheck
 			}
 		}()
 	}
@@ -1526,7 +1526,7 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 				panic(err)
 			}
 		}
-		fmt.Fprintln(response, string(payload))
+		fmt.Fprintln(response, string(payload)) //nolint:errcheck
 	})
 	mux.HandleFunc("/.well-known/openid-configuration", func(response http.ResponseWriter, request *http.Request) {
 		if _, ok := test.Actions[configBadBody]; ok {
@@ -1556,7 +1556,7 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 		if err != nil {
 			panic(err)
 		}
-		fmt.Fprintln(response, string(payload))
+		fmt.Fprintln(response, string(payload)) //nolint:errcheck
 	})
 	server := httptest.NewServer(mux)
 	test.URL = server.URL

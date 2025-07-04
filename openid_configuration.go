@@ -16,7 +16,7 @@ func FetchOpenIDConfiguration(url string, client *http.Client) (*OpenIDConfigura
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer response.Body.Close() //nolint:errcheck
 
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("got %d from %s", response.StatusCode, url)
