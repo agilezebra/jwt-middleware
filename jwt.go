@@ -172,7 +172,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 	plugin := JWTPlugin{
 		next:                 next,
 		name:                 name,
-		parser:               jwt.NewParser(jwt.WithValidMethods(config.ValidMethods)),
+		parser:               jwt.NewParser(jwt.WithValidMethods(config.ValidMethods), jwt.WithJSONNumber()),
 		secret:               key,
 		issuers:              canonicalizeDomains(config.Issuers),
 		clients:              createClients(config.InsecureSkipVerify),
@@ -351,7 +351,8 @@ func (plugin *JWTPlugin) allowRefresh(claims jwt.MapClaims) bool {
 		return false
 	}
 
-	return time.Now().Unix()-int64(iat.(float64)) > plugin.freshness
+	value, err := iat.(json.Number).Int64()
+	return err == nil && time.Now().Unix()-value > plugin.freshness
 }
 
 // mapClaimsToHeaders maps any claims to headers as specified in the headerMap configuration.
@@ -399,6 +400,19 @@ func (requirement ValueRequirement) Validate(value any, variables *TemplateVaria
 			return false
 		}
 		return fnmatch.Match(value, required, 0) || value == fmt.Sprintf("*.%s", required)
+
+	case json.Number:
+		switch requirement.value.(type) {
+		case int:
+			converted, err := value.Int64()
+			return err == nil && converted == int64(requirement.value.(int))
+		case float64:
+			converted, err := value.Float64()
+			return err == nil && converted == requirement.value.(float64)
+		default:
+			log.Printf("unsupported requirement type for json.Number comparison: %T %v", requirement.value, requirement.value)
+			return false
+		}
 	}
 
 	return reflect.DeepEqual(value, requirement.value)

@@ -1325,6 +1325,39 @@ func TestServeHTTP(tester *testing.T) {
 			Method:     jwt.SigningMethodES256,
 			CookieName: "Authorization",
 		},
+		{
+			Name:   "large integer needing json.Number to keep precision",
+			Expect: http.StatusOK,
+			Config: `
+				infoToStdout: true
+				require:
+					large: 1147953659032899584`,
+			ClaimsMap:  jwt.MapClaims{"large": 1147953659032899584},
+			Method:     jwt.SigningMethodES256,
+			CookieName: "Authorization",
+		},
+		{
+			Name:   "float claim",
+			Expect: http.StatusOK,
+			Config: `
+				infoToStdout: true
+				require:
+					float: 0.0`,
+			ClaimsMap:  jwt.MapClaims{"float": 0.0},
+			Method:     jwt.SigningMethodES256,
+			CookieName: "Authorization",
+		},
+		{
+			Name:   "claim with different type",
+			Expect: http.StatusForbidden,
+			Config: `
+				infoToStdout: true
+				require:
+					large: "1147953659032899584"`,
+			ClaimsMap:  jwt.MapClaims{"large": 1147953659032899584},
+			Method:     jwt.SigningMethodES256,
+			CookieName: "Authorization",
+		},
 	}
 
 	for _, test := range tests {
