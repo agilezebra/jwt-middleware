@@ -327,8 +327,7 @@ func (plugin *JWTPlugin) validate(request *http.Request, variables *TemplateVari
 			if !plugin.validateClaim(claim, claims, requirements, variables) {
 				err := fmt.Errorf("claim is not valid: %s", claim)
 				// If the token is older than our freshness window, we allow that reauthorization might fix it
-				iat, ok := claims["iat"]
-				if ok && plugin.freshness != 0 && time.Now().Unix()-int64(iat.(float64)) > plugin.freshness {
+				if plugin.allowRefresh(claims) {
 					return http.StatusUnauthorized, err
 				} else {
 					return http.StatusForbidden, err
@@ -340,6 +339,19 @@ func (plugin *JWTPlugin) validate(request *http.Request, variables *TemplateVari
 	}
 
 	return http.StatusOK, nil
+}
+
+// allowRefresh returns true if freshness window is configured and the token has an iat claim that is older than the freshness window.
+func (plugin *JWTPlugin) allowRefresh(claims jwt.MapClaims) bool {
+	if plugin.freshness == 0 {
+		return false
+	}
+	iat, ok := claims["iat"]
+	if !ok {
+		return false
+	}
+
+	return time.Now().Unix()-int64(iat.(float64)) > plugin.freshness
 }
 
 // mapClaimsToHeaders maps any claims to headers as specified in the headerMap configuration.

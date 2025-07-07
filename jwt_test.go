@@ -245,10 +245,22 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
-			Name:   "StatusUnauthorized when within window of freshness",
+			Name:   "StatusUnauthorized when outside window of freshness",
 			Expect: http.StatusUnauthorized,
 			Config: `
 				secret: fixed secret
+				require:
+					aud: test`,
+			Claims:     `{"aud": "other", "iat": 1692451139}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "StatusForbidden when no window of freshness",
+			Expect: http.StatusForbidden,
+			Config: `
+				secret: fixed secret
+				freshness: 0
 				require:
 					aud: test`,
 			Claims:     `{"aud": "other", "iat": 1692451139}`,
