@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agilezebra/jwt-middleware/logger"
 	"github.com/danwakefield/fnmatch"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -44,7 +45,6 @@ type Config struct {
 	RemoveMissingHeaders bool              `json:"removeMissingHeaders,omitempty"`
 	ForwardToken         bool              `json:"forwardToken,omitempty"`
 	Freshness            int64             `json:"freshness,omitempty"`
-	InfoToStdout         bool              `json:"infoToStdout,omitempty"`
 }
 
 // JWTPlugin is a traefik middleware plugin that authorizes access based on JWT tokens.
@@ -71,7 +71,6 @@ type JWTPlugin struct {
 	forwardToken         bool                      // If true, the token is forwarded to the backend
 	freshness            int64                     // The maximum age of a token in seconds
 	environment          map[string]string         // Map of environment variables
-	infoToStdout         bool                      // If true, log non-error messahes to stdout instead of the default logger
 }
 
 // TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
@@ -142,16 +141,6 @@ func environment() map[string]string {
 	return variables
 }
 
-// logInfo logs to stdout if infoToStdout is true or to the default logger if not.
-func (plugin *JWTPlugin) logInfo(format string, v ...any) {
-	// Note we tried to just use a function pointer in the plugin struct with a one-time setup but yaegi can't cope with it
-	if plugin.infoToStdout {
-		fmt.Printf(format, v...)
-	} else {
-		log.Printf(format, v...)
-	}
-}
-
 // New creates a new JWTPlugin.
 func New(_ context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	log.SetFlags(0)
@@ -191,7 +180,6 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		forwardToken:         config.ForwardToken,
 		freshness:            config.Freshness,
 		environment:          environment(),
-		infoToStdout:         config.InfoToStdout,
 	}
 
 	// If we have keys/secrets, add them to the key cache
@@ -535,7 +523,7 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (any, error) {
 
 				if looped {
 					if refreshed != "" {
-						plugin.logInfo("key %s: refreshed keys from %s and still no match", kid, refreshed)
+						logger.Log("WARN", "key %s: refreshed keys from %s and still no match", kid, refreshed)
 					}
 					break
 				}
@@ -624,9 +612,9 @@ func (plugin *JWTPlugin) fetchKeys(issuer string) error {
 	if err != nil {
 		// Fall back to direct JWKS URL if OpenID configuration fetch fails
 		url = issuer + ".well-known/jwks.json"
-		plugin.logInfo("failed to fetch openid-configuration from url:%s; falling back to direct JWKS URL:%s", configURL, url)
+		logger.Log("WARN", "failed to fetch openid-configuration from url:%s; falling back to direct JWKS URL:%s", configURL, url)
 	} else {
-		plugin.logInfo("fetched openid-configuration from url:%s", configURL)
+		logger.Log("INFO", "fetched openid-configuration from url:%s", configURL)
 		url = config.JWKSURI
 	}
 
@@ -639,7 +627,7 @@ func (plugin *JWTPlugin) fetchKeys(issuer string) error {
 	defer plugin.lock.Unlock()
 
 	for keyID, key := range jwks {
-		plugin.logInfo("fetched key:%s from url:%s", keyID, url)
+		logger.Log("INFO", "fetched key:%s from url:%s", keyID, url)
 		plugin.keys[keyID] = key
 	}
 
@@ -663,7 +651,7 @@ func (plugin *JWTPlugin) isIssuedKey(keyID string) bool {
 func (plugin *JWTPlugin) purgeKeys() {
 	for keyID := range plugin.keys {
 		if !plugin.isIssuedKey(keyID) {
-			plugin.logInfo("key:%s dropped", keyID)
+			logger.Log("INFO", "key:%s dropped", keyID)
 			delete(plugin.keys, keyID)
 		}
 	}
