@@ -32,11 +32,7 @@ jobs:
           go mod vendor
 
       - name: Test
-        run: |
-          go test ./... -v -coverprofile=coverage.out -json > report.json
-          package=$(go list .)
-          sed -i "s|^${package}/||" coverage.out
-          cat coverage.out
+        run: go test ./... -v -coverprofile=coverage.out -json > report.json
 
       - name: Sonar Scan
         uses: SonarSource/sonarqube-scan-action@v5
