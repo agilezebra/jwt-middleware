@@ -32,11 +32,9 @@ jobs:
           go mod vendor
 
       - name: Test
-        run: go test ./... -v -coverprofile=coverage.out -json > report.json
-
-      - name: Fix coverage file paths
         run: |
-          sed -i "s|^|$(pwd)/|" coverage.out
+          go test ./ -v -coverprofile=coverage.out -json > report.json
+          go test ./logger -v -coverprofile=logger/coverage.out -json > logger/report.json
 
       - name: Sonar Scan
         uses: SonarSource/sonarqube-scan-action@v5
