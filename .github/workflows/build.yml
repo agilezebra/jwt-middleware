@@ -34,6 +34,10 @@ jobs:
       - name: Test
         run: go test ./... -v -coverprofile=coverage.out -json > report.json
 
+      - name: Fix coverage file paths
+        run: |
+          sed -i "s|^|$(pwd)/|" coverage.out
+
       - name: Sonar Scan
         uses: SonarSource/sonarqube-scan-action@v5
         env:
