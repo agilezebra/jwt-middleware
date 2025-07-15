@@ -454,29 +454,29 @@ func (requirement TemplateRequirement) Validate(value any, variables *TemplateVa
 
 // convertRequire converts the require configuration to a map of requirements.
 func convertRequire(require map[string]any) Requirements {
-	converted := make(Requirements, len(require))
+	requirements := make(Requirements, len(require))
 	for key, value := range require {
 		switch value := value.(type) {
 		case []any:
-			requirements := make(ClaimRequirements, len(value))
+			claimRequirements := make(ClaimRequirements, len(value))
 			for index, value := range value {
-				requirements[index] = createRequirement(value, nil)
+				claimRequirements[index] = createRequirement(value, nil)
 			}
-			converted[key] = requirements
+			requirements[key] = claimRequirements
 		case map[string]any:
-			requirements := make(ClaimRequirements, len(value))
+			claimRequirements := make(ClaimRequirements, len(value))
 			index := 0
 			for key, value := range value {
-				requirements[index] = createRequirement(key, value)
+				claimRequirements[index] = createRequirement(key, value)
 				index++
 			}
-			converted[key] = requirements
+			requirements[key] = claimRequirements
 		default:
-			converted[key] = ClaimRequirements{createRequirement(value, nil)}
+			requirements[key] = ClaimRequirements{createRequirement(value, nil)}
 		}
 
 	}
-	return converted
+	return requirements
 }
 
 // createRequirement creates a Requirement of the correct type from the given value (and any nested value).
