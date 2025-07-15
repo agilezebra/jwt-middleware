@@ -44,6 +44,12 @@ type TemplateRequirement struct {
 	nested   any
 }
 
+// ClaimRequirements is a list of statisfying requirements for a claim, any of which may satisfy the claim.
+type ClaimRequirements []Requirement
+
+// Requirements is a map of claim to the requirements for those claims.
+type Requirements map[string]ClaimRequirements
+
 // Config is the configuration for the plugin.
 type Config struct {
 	ValidMethods         []string          `json:"validMethods,omitempty"`
@@ -77,7 +83,7 @@ type JWTPlugin struct {
 	issuers              []string                  // A list of valid issuers that we trust to fetch keys from
 	clients              map[string]*http.Client   // A map of clients for specific issuers that skip certificate verification
 	defaultClient        *http.Client              // A default client for fetching keys with certificate verification, optionally with custom root CAs
-	require              map[string][]Requirement  // A map of requirements for each claim
+	require              Requirements              // A map of requirements for each claim
 	lock                 sync.RWMutex              // Read-write lock for the keys and issuerKeys maps
 	keys                 map[string]any            // A map of key IDs to public keys or shared HMAC secrets
 	issuerKeys           map[string]map[string]any // A map of issuer URLs to key IDs to public keys, for reference counting / purging
@@ -309,17 +315,12 @@ func (plugin *JWTPlugin) validate(request *http.Request, variables *TemplateVari
 		}
 
 		claims := token.Claims.(jwt.MapClaims)
-
-		// Validate that claims match - AND
-		for claim, requirements := range plugin.require {
-			if !plugin.validateClaim(claim, claims, requirements, variables) {
-				err := fmt.Errorf("claim is not valid: %s", claim)
-				// If the token is older than our freshness window, we allow that reauthorization might fix it
-				if plugin.allowRefresh(claims) {
-					return http.StatusUnauthorized, err
-				} else {
-					return http.StatusForbidden, err
-				}
+		err = plugin.validateClaims(claims, variables)
+		if err != nil {
+			if plugin.allowRefresh(claims) {
+				return http.StatusUnauthorized, err
+			} else {
+				return http.StatusForbidden, err
 			}
 		}
 
@@ -452,18 +453,18 @@ func (requirement TemplateRequirement) Validate(value any, variables *TemplateVa
 }
 
 // convertRequire converts the require configuration to a map of requirements.
-func convertRequire(require map[string]any) map[string][]Requirement {
-	converted := make(map[string][]Requirement, len(require))
+func convertRequire(require map[string]any) Requirements {
+	converted := make(Requirements, len(require))
 	for key, value := range require {
 		switch value := value.(type) {
 		case []any:
-			requirements := make([]Requirement, len(value))
+			requirements := make(ClaimRequirements, len(value))
 			for index, value := range value {
 				requirements[index] = createRequirement(value, nil)
 			}
 			converted[key] = requirements
 		case map[string]any:
-			requirements := make([]Requirement, len(value))
+			requirements := make(ClaimRequirements, len(value))
 			index := 0
 			for key, value := range value {
 				requirements[index] = createRequirement(key, value)
@@ -471,7 +472,7 @@ func convertRequire(require map[string]any) map[string][]Requirement {
 			}
 			converted[key] = requirements
 		default:
-			converted[key] = []Requirement{createRequirement(value, nil)}
+			converted[key] = ClaimRequirements{createRequirement(value, nil)}
 		}
 
 	}
@@ -492,14 +493,26 @@ func createRequirement(value any, nested any) Requirement {
 	return ValueRequirement{value: value, nested: nested}
 }
 
-// validateClaim valideates a single claim against the requirement(s) for that claim (any match with satisfy - OR).
-func (plugin *JWTPlugin) validateClaim(claim string, claims jwt.MapClaims, requirements []Requirement, variables *TemplateVariables) bool {
-	value, ok := claims[claim]
-	if ok {
-		for _, requirement := range requirements {
-			if requirement.Validate(value, variables) {
-				return true
-			}
+// validateClaims validates all claims against their requirements (all must match - AND).
+func (plugin *JWTPlugin) validateClaims(claims jwt.MapClaims, variables *TemplateVariables) error {
+	for claim, requirements := range plugin.require {
+		value, ok := claims[claim]
+		if !ok {
+			return fmt.Errorf("claim is not present: %s", claim)
+		}
+		if !requirements.validate(value, variables) {
+			err := fmt.Errorf("claim is not valid: %s", claim)
+			return err
+		}
+	}
+	return nil
+}
+
+// validate validates a single claim against the requirement(s) for that claim (any match will satisfy - OR).
+func (requirements ClaimRequirements) validate(value any, variables *TemplateVariables) bool {
+	for _, requirement := range requirements {
+		if requirement.Validate(value, variables) {
+			return true
 		}
 	}
 	return false
