@@ -366,8 +366,8 @@ func (plugin *JWTPlugin) mapClaimsToHeaders(claims jwt.MapClaims, request *http.
 	}
 }
 
-// Validate checks value against the requirement, calling ourself recursively for object and array values.
-// variables is required in the interface and passed on recusrively but ultimately ignored by ValueRequirement
+// Validate checks value against the requirement, calling ourselves recursively for object and array values.
+// variables is required in the interface and passed on recursively but ultimately ignored by ValueRequirement
 // having been already interpolated by TemplateRequirement
 func (requirement ValueRequirement) Validate(value any, variables *TemplateVariables) bool {
 	switch value := value.(type) {
