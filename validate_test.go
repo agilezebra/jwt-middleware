@@ -9,7 +9,7 @@ import (
 func TestNewRequirement(tester *testing.T) {
 	defer func() {
 		if recover() == nil {
-			tester.Errorf("NewRequirement() did not panic")
+			tester.Fatal("NewRequirement() did not panic")
 		}
 	}()
 
@@ -24,6 +24,6 @@ func TestValidatorMap(tester *testing.T) {
 
 	result := requirementMap.Validate(false, &variables)
 	if result.Error() != "value must be map[string]any; got bool" {
-		tester.Errorf("RequirementMap.Validate() = %v; want error", result)
+		tester.Fatalf("RequirementMap.Validate() = %v; want error", result)
 	}
 }
