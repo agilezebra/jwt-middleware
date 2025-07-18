@@ -428,6 +428,22 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
+			Name:   "wildcard object and multiple required and single invalid nested",
+			Expect: http.StatusForbidden,
+			Config: `
+				secret: fixed secret
+				require:
+					authority:
+						"test.example.com": ["user", "admin"]`,
+			Claims: `{
+				"authority": {
+					"*.example.com": "other"
+				}
+			}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
 			Name:   "wildcard object and irrelevant nested value claim",
 			Expect: http.StatusOK,
 			Config: `
@@ -1358,6 +1374,164 @@ func TestServeHTTP(tester *testing.T) {
 			Method:     jwt.SigningMethodES256,
 			CookieName: "Authorization",
 		},
+		{
+			Name:   "deeply nested valid claims",
+			Expect: http.StatusOK,
+			Config: `
+					secret: fixed secret
+					require:
+						aud: test
+						roles:
+							nested:
+								roles: ["other", "test"]
+				`,
+			Claims: `
+					{
+						"aud": "test",
+						"iss": "https://auth.example.com",
+						"roles": {
+							"nested": {
+								"other": "admin",
+								"roles": "test"
+							}
+						}
+					}
+				`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "deeply nested invalid claims",
+			Expect: http.StatusForbidden,
+			Config: `
+					secret: fixed secret
+					require:
+						aud: test
+						roles:
+							nested:
+								roles: ["admin", "test"]
+				`,
+			Claims: `
+					{
+						"aud": "test",
+						"iss": "https://auth.example.com",
+						"roles": {
+							"nested": {
+								"other": "admin",
+								"roles": "other"
+							}
+						}
+					}
+				`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "and requirement with valid claims",
+			Expect: http.StatusOK,
+			Config: `
+							secret: fixed secret
+							require:
+								aud: test
+								roles:
+									"$and": ["admin", "other"]
+						`,
+			Claims: `
+						    {
+								"aud": "test",
+								"iss": "https://auth.example.com",
+								"roles": ["admin", "other"]
+							}
+					    `,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "and requirement with invalid claims",
+			Expect: http.StatusForbidden,
+			Config: `
+							secret: fixed secret
+							require:
+								aud: test
+								roles:
+									"$and": ["admin", "other"]
+						`,
+			Claims: `
+						    {
+								"aud": "test",
+								"iss": "https://auth.example.com",
+								"roles": ["admin"]
+							}
+					    `,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "complex and/or requirement with valid and claims",
+			Expect: http.StatusOK,
+			Config: `
+							secret: fixed secret
+							require:
+								aud: test
+								roles:
+									$or:
+										- $and: ["hr", "power"]
+										- "admin"
+						`,
+			Claims: `
+						    {
+								"aud": "test",
+								"iss": "https://auth.example.com",
+								"roles": ["hr", "power"]
+							}
+					    `,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "complex and/or requirement with valid or claim",
+			Expect: http.StatusOK,
+			Config: `
+							secret: fixed secret
+							require:
+								aud: test
+								roles:
+									$or:
+										- $and: ["hr", "power"]
+										- "admin"
+						`,
+			Claims: `
+						    {
+								"aud": "test",
+								"iss": "https://auth.example.com",
+								"roles": ["admin"]
+							}
+					    `,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "complex and/or requirement with invalid claims",
+			Expect: http.StatusForbidden,
+			Config: `
+							secret: fixed secret
+							require:
+								aud: test
+								roles:
+									$or:
+										- $and: ["hr", "power"]
+										- "admin"
+						`,
+			Claims: `
+						    {
+								"aud": "test",
+								"iss": "https://auth.example.com",
+								"roles": ["hr"]
+							}
+					    `,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
 	}
 
 	for _, test := range tests {
@@ -1456,7 +1630,7 @@ func expectDisallow(test *Test) bool {
 	return false
 }
 
-// createConfig creates a configuration from a YAML string using the same method traefik
+// createConfig creates a configuration from a YAML string using the same method traefik uses
 func createConfig(text string) (*Config, error) {
 	var config map[string]any
 	err := yaml.Unmarshal([]byte(strings.ReplaceAll(text, "\t", "    ")), &config)
@@ -1892,15 +2066,15 @@ LT12fZ0MWBjfGc90EEJ9z4/CRUWMdtlOaLnXinyrvOH+SSTJD8xfwKqH6g==
 -----END CERTIFICATE-----`,
 	}
 	tester.Run("Default", func(tester *testing.T) {
-		client := createDefaultClient(nil, true)
+		client := NewDefaultClient(nil, true)
 		if client == nil {
 			tester.Error("client is nil")
 		}
-		client = createDefaultClient(pems, true)
+		client = NewDefaultClient(pems, true)
 		if client == nil {
 			tester.Error("client is nil")
 		}
-		client = createDefaultClient(pems, false)
+		client = NewDefaultClient(pems, false)
 		if client == nil {
 			tester.Error("client is nil")
 		}
