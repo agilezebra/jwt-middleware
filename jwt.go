@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -26,29 +25,6 @@ import (
 // TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
 // This has become a map rather than a struct now because we add the environment variables to it.
 type TemplateVariables map[string]string
-
-// Requirement is a requirement for a claim.
-type Requirement interface {
-	Validate(value any, variables *TemplateVariables) bool
-}
-
-// ValueRequirement is a requirement for a claim that is a known value.
-type ValueRequirement struct {
-	value  any
-	nested any
-}
-
-// TemplateRequirement is a dynamic requirement for a claim that uses a template that needs interpolating per request.
-type TemplateRequirement struct {
-	template *template.Template
-	nested   any
-}
-
-// ClaimRequirements is a list of statisfying requirements for a claim, any of which may satisfy the claim.
-type ClaimRequirements []Requirement
-
-// Requirements is a map of claim to the requirements for those claims.
-type Requirements map[string]ClaimRequirements
 
 // Config is the configuration for the plugin.
 type Config struct {
@@ -83,7 +59,7 @@ type JWTPlugin struct {
 	issuers              []string                  // A list of valid issuers that we trust to fetch keys from
 	clients              map[string]*http.Client   // A map of clients for specific issuers that skip certificate verification
 	defaultClient        *http.Client              // A default client for fetching keys with certificate verification, optionally with custom root CAs
-	require              Requirements              // A map of requirements for each claim
+	require              Requirement               // A map of requirements for each claim (which we treat simply as a Requirement to be validated)
 	lock                 sync.RWMutex              // Read-write lock for the keys and issuerKeys maps
 	keys                 map[string]any            // A map of key IDs to public keys or shared HMAC secrets
 	issuerKeys           map[string]map[string]any // A map of issuer URLs to key IDs to public keys, for reference counting / purging
@@ -172,7 +148,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		issuers:              canonicalizeDomains(config.Issuers),
 		clients:              NewClients(config.InsecureSkipVerify),
 		defaultClient:        NewDefaultClient(config.RootCAs, true),
-		require:              convertRequire(config.Require),
+		require:              NewRequirement(config.Require, "$and"),
 		keys:                 make(map[string]any),
 		issuerKeys:           make(map[string]map[string]any),
 		optional:             config.Optional,
@@ -315,7 +291,7 @@ func (plugin *JWTPlugin) validate(request *http.Request, variables *TemplateVari
 		}
 
 		claims := token.Claims.(jwt.MapClaims)
-		err = plugin.validateClaims(claims, variables)
+		err = plugin.require.Validate(map[string]any(claims), variables)
 		if err != nil {
 			if plugin.allowRefresh(claims) {
 				return http.StatusUnauthorized, err
@@ -364,158 +340,6 @@ func (plugin *JWTPlugin) mapClaimsToHeaders(claims jwt.MapClaims, request *http.
 			request.Header.Del(header)
 		}
 	}
-}
-
-// Validate checks value against the requirement, calling ourselves recursively for object and array values.
-// variables is required in the interface and passed on recursively but ultimately ignored by ValueRequirement
-// having been already interpolated by TemplateRequirement
-func (requirement ValueRequirement) Validate(value any, variables *TemplateVariables) bool {
-	switch value := value.(type) {
-	case []any:
-		for _, value := range value {
-			if requirement.Validate(value, variables) {
-				return true
-			}
-		}
-	case map[string]any:
-		for value, nested := range value {
-			if requirement.Validate(value, variables) && requirement.ValidateNested(nested) {
-				return true
-			}
-		}
-	case string:
-		required, ok := requirement.value.(string)
-		if !ok {
-			return false
-		}
-		return fnmatch.Match(value, required, 0) || value == fmt.Sprintf("*.%s", required)
-
-	case json.Number:
-		switch requirement.value.(type) {
-		case int:
-			converted, err := value.Int64()
-			return err == nil && converted == int64(requirement.value.(int))
-		case float64:
-			converted, err := value.Float64()
-			return err == nil && converted == requirement.value.(float64)
-		default:
-			log.Printf("unsupported requirement type for json.Number comparison: %T %v", requirement.value, requirement.value)
-			return false
-		}
-	}
-
-	return reflect.DeepEqual(value, requirement.value)
-}
-
-// ValidateNested checks value against the nested requirement
-func (requirement ValueRequirement) ValidateNested(value any) bool {
-	// The nested requirement may be a single required value, or an OR choice of acceptable values. Convert to a slice of values.
-	var required []any
-	switch nested := requirement.nested.(type) {
-	case nil:
-		// If the nested requirement is nil, we don't care about the nested claims that brought us here and the value is always valid.
-		return true
-	case []any:
-		required = nested
-	case any:
-		required = []any{nested}
-	}
-
-	// Likewise, the value may be a single claim value or an array of several granted claims values. Convert to a slice of values.
-	var supplied []any
-	switch value := value.(type) {
-	case []any:
-		supplied = value
-	case any:
-		supplied = []any{value}
-	}
-
-	// If any of the values match any of the nested requirement, the claim is valid.
-	for _, required := range required {
-		for _, supplied := range supplied {
-			if reflect.DeepEqual(required, supplied) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// Validate interpolates the requirement template with the given variables and then delegates to ValueRequirement.
-func (requirement TemplateRequirement) Validate(value any, variables *TemplateVariables) bool {
-	var buffer bytes.Buffer
-	err := requirement.template.Execute(&buffer, variables)
-	if err != nil {
-		log.Printf("Error executing template: %s", err)
-		return false
-	}
-	return ValueRequirement{value: buffer.String(), nested: requirement.nested}.Validate(value, variables)
-}
-
-// convertRequire converts the require configuration to a map of requirements.
-func convertRequire(require map[string]any) Requirements {
-	requirements := make(Requirements, len(require))
-	for key, value := range require {
-		switch value := value.(type) {
-		case []any:
-			claimRequirements := make(ClaimRequirements, len(value))
-			for index, value := range value {
-				claimRequirements[index] = NewRequirement(value, nil)
-			}
-			requirements[key] = claimRequirements
-		case map[string]any:
-			claimRequirements := make(ClaimRequirements, len(value))
-			index := 0
-			for key, value := range value {
-				claimRequirements[index] = NewRequirement(key, value)
-				index++
-			}
-			requirements[key] = claimRequirements
-		default:
-			requirements[key] = ClaimRequirements{NewRequirement(value, nil)}
-		}
-
-	}
-	return requirements
-}
-
-// NewRequirement creates a Requirement of the correct type from the given value (and any nested value).
-func NewRequirement(value any, nested any) Requirement {
-	switch value := value.(type) {
-	case string:
-		if strings.Contains(value, "{{") && strings.Contains(value, "}}") {
-			return TemplateRequirement{
-				template: template.Must(template.New("template").Option("missingkey=error").Parse(value)),
-				nested:   nested,
-			}
-		}
-	}
-	return ValueRequirement{value: value, nested: nested}
-}
-
-// validateClaims validates all claims against their requirements (all must match - AND).
-func (plugin *JWTPlugin) validateClaims(claims jwt.MapClaims, variables *TemplateVariables) error {
-	for claim, requirements := range plugin.require {
-		value, ok := claims[claim]
-		if !ok {
-			return fmt.Errorf("claim is not present: %s", claim)
-		}
-		if !requirements.validate(value, variables) {
-			err := fmt.Errorf("claim is not valid: %s", claim)
-			return err
-		}
-	}
-	return nil
-}
-
-// validate validates a single claim against the requirement(s) for that claim (any match will satisfy - OR).
-func (requirements ClaimRequirements) validate(value any, variables *TemplateVariables) bool {
-	for _, requirement := range requirements {
-		if requirement.Validate(value, variables) {
-			return true
-		}
-	}
-	return false
 }
 
 // getKey gets the key for the given key ID from the plugin's key cache.
