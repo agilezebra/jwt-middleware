@@ -1892,15 +1892,15 @@ LT12fZ0MWBjfGc90EEJ9z4/CRUWMdtlOaLnXinyrvOH+SSTJD8xfwKqH6g==
 -----END CERTIFICATE-----`,
 	}
 	tester.Run("Default", func(tester *testing.T) {
-		client := createDefaultClient(nil, true)
+		client := NewDefaultClient(nil, true)
 		if client == nil {
 			tester.Error("client is nil")
 		}
-		client = createDefaultClient(pems, true)
+		client = NewDefaultClient(pems, true)
 		if client == nil {
 			tester.Error("client is nil")
 		}
-		client = createDefaultClient(pems, false)
+		client = NewDefaultClient(pems, false)
 		if client == nil {
 			tester.Error("client is nil")
 		}

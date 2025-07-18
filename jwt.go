@@ -170,14 +170,14 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		parser:               jwt.NewParser(jwt.WithValidMethods(config.ValidMethods), jwt.WithJSONNumber()),
 		secret:               key,
 		issuers:              canonicalizeDomains(config.Issuers),
-		clients:              createClients(config.InsecureSkipVerify),
-		defaultClient:        createDefaultClient(config.RootCAs, true),
+		clients:              NewClients(config.InsecureSkipVerify),
+		defaultClient:        NewDefaultClient(config.RootCAs, true),
 		require:              convertRequire(config.Require),
 		keys:                 make(map[string]any),
 		issuerKeys:           make(map[string]map[string]any),
 		optional:             config.Optional,
-		redirectUnauthorized: createTemplate(config.RedirectUnauthorized),
-		redirectForbidden:    createTemplate(config.RedirectForbidden),
+		redirectUnauthorized: NewTemplate(config.RedirectUnauthorized),
+		redirectForbidden:    NewTemplate(config.RedirectForbidden),
 		cookieName:           config.CookieName,
 		headerName:           config.HeaderName,
 		parameterName:        config.ParameterName,
@@ -256,7 +256,7 @@ func (plugin *JWTPlugin) fetchRoutine(delayPrefetch time.Duration, refreshKeysIn
 
 // ServeHTTP is the middleware entry point.
 func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.Request) {
-	variables := plugin.createTemplateVariables(request)
+	variables := plugin.NewTemplateVariables(request)
 	status, err := plugin.validate(request, variables)
 	if err == nil {
 		// Request is valid, pass to the next handler and we're done
@@ -460,27 +460,27 @@ func convertRequire(require map[string]any) Requirements {
 		case []any:
 			claimRequirements := make(ClaimRequirements, len(value))
 			for index, value := range value {
-				claimRequirements[index] = createRequirement(value, nil)
+				claimRequirements[index] = NewRequirement(value, nil)
 			}
 			requirements[key] = claimRequirements
 		case map[string]any:
 			claimRequirements := make(ClaimRequirements, len(value))
 			index := 0
 			for key, value := range value {
-				claimRequirements[index] = createRequirement(key, value)
+				claimRequirements[index] = NewRequirement(key, value)
 				index++
 			}
 			requirements[key] = claimRequirements
 		default:
-			requirements[key] = ClaimRequirements{createRequirement(value, nil)}
+			requirements[key] = ClaimRequirements{NewRequirement(value, nil)}
 		}
 
 	}
 	return requirements
 }
 
-// createRequirement creates a Requirement of the correct type from the given value (and any nested value).
-func createRequirement(value any, nested any) Requirement {
+// NewRequirement creates a Requirement of the correct type from the given value (and any nested value).
+func NewRequirement(value any, nested any) Requirement {
 	switch value := value.(type) {
 	case string:
 		if strings.Contains(value, "{{") && strings.Contains(value, "}}") {
@@ -698,8 +698,8 @@ func pemContent(value string) (string, error) {
 	return string(content), nil
 }
 
-// createDefaultClient returns an http.Client with the given root CAs, or a default client if no root CAs are provided.
-func createDefaultClient(pems []string, useSystemCertPool bool) *http.Client {
+// NewDefaultClient returns an http.Client with the given root CAs, or a default client if no root CAs are provided.
+func NewDefaultClient(pems []string, useSystemCertPool bool) *http.Client {
 	if pems == nil {
 		return &http.Client{}
 	}
@@ -721,8 +721,8 @@ func createDefaultClient(pems []string, useSystemCertPool bool) *http.Client {
 	return &http.Client{Transport: transport}
 }
 
-// createClients reads a list of domains in the InsecureSkipVerify configuration and creates a map of domains to http.Client with InsecureSkipVerify set.
-func createClients(insecureSkipVerify []string) map[string]*http.Client {
+// NewClients reads a list of domains in the InsecureSkipVerify configuration and creates a map of domains to http.Client with InsecureSkipVerify set.
+func NewClients(insecureSkipVerify []string) map[string]*http.Client {
 	// Create a single client with InsecureSkipVerify set
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -737,8 +737,8 @@ func createClients(insecureSkipVerify []string) map[string]*http.Client {
 	return clients
 }
 
-// createTemplate creates a template from the given string, or nil if not specified.
-func createTemplate(text string) *template.Template {
+// NewTemplate creates a template from the given string, or nil if not specified.
+func NewTemplate(text string) *template.Template {
 	if text == "" {
 		return nil
 	}
@@ -749,11 +749,11 @@ func createTemplate(text string) *template.Template {
 	return template.Must(template.New("template").Funcs(functions).Option("missingkey=error").Parse(text))
 }
 
-// createTemplateVariables creates a template data map for the given request.
+// NewTemplateVariables creates a template data map for the given request.
 // We start with a clone of our environment variables and add the the per-request variables.
 // The purpose of environment variables is to allow a easier way to set a configurable but then fixed value for a claim
 // requirement in the configuration file (as rewriting the configuration file is harder than setting environment variables).
-func (plugin *JWTPlugin) createTemplateVariables(request *http.Request) *TemplateVariables {
+func (plugin *JWTPlugin) NewTemplateVariables(request *http.Request) *TemplateVariables {
 	// copy the environment variables
 	variables := make(TemplateVariables, len(plugin.environment)+6)
 	for key, value := range plugin.environment {
