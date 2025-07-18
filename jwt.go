@@ -22,10 +22,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
-// This has become a map rather than a struct now because we add the environment variables to it.
-type TemplateVariables map[string]string
-
 // Config is the configuration for the plugin.
 type Config struct {
 	ValidMethods         []string          `json:"validMethods,omitempty"`
@@ -75,6 +71,10 @@ type JWTPlugin struct {
 	freshness            int64                     // The maximum age of a token in seconds
 	environment          map[string]string         // Map of environment variables
 }
+
+// TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
+// This has become a map rather than a struct now because we add the environment variables to it.
+type TemplateVariables map[string]string
 
 // CreateConfig creates the default plugin configuration.
 func CreateConfig() *Config {
