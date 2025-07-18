@@ -1466,6 +1466,72 @@ func TestServeHTTP(tester *testing.T) {
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
+		{
+			Name:   "complex and/or requirement with valid and claims",
+			Expect: http.StatusOK,
+			Config: `
+							secret: fixed secret
+							require:
+								aud: test
+								roles:
+									$or:
+										- $and: ["hr", "power"]
+										- "admin"
+						`,
+			Claims: `
+						    {
+								"aud": "test",
+								"iss": "https://auth.example.com",
+								"roles": ["hr", "power"]
+							}
+					    `,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "complex and/or requirement with valid or claim",
+			Expect: http.StatusOK,
+			Config: `
+							secret: fixed secret
+							require:
+								aud: test
+								roles:
+									$or:
+										- $and: ["hr", "power"]
+										- "admin"
+						`,
+			Claims: `
+						    {
+								"aud": "test",
+								"iss": "https://auth.example.com",
+								"roles": ["admin"]
+							}
+					    `,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
+			Name:   "complex and/or requirement with invalid claims",
+			Expect: http.StatusForbidden,
+			Config: `
+							secret: fixed secret
+							require:
+								aud: test
+								roles:
+									$or:
+										- $and: ["hr", "power"]
+										- "admin"
+						`,
+			Claims: `
+						    {
+								"aud": "test",
+								"iss": "https://auth.example.com",
+								"roles": ["hr"]
+							}
+					    `,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
 	}
 
 	for _, test := range tests {

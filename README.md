@@ -19,7 +19,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/agilezebra/jwt-middleware
-      version: v1.3.0
+      version: v1.3.1
 ```
 1b. or with command-line options:
 
@@ -27,7 +27,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/agilezebra/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.3.0"
+  - "--experimental.plugins.jwt.version=v1.3.1"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
@@ -85,7 +85,7 @@ Name | Description
 `skipPrefetch` | Don't prefetch keys from `issuers`. This is useful if all the expected secrets are provided in `secrets`, especially in situations where traefik or its services are frequently restarted, to save from hitting the issuer JWKS endpoint unnecessarily.
 `delayPrefetch` | Delay prefetching keys from `issuers` by the given duration (expressed in `time.ParseDuration` format - e.g. "300ms", "5s"). This is particularly useful if your openid server is behind the very traefik service that is loading the plugin and you need to give it time to be ready for your request. This has no effect if `skipPrefetch` is set.
 `refreshKeysInterval` | Arbitrarily refresh all keys from all `issuers` in a background thread every given duration (after any prefetch).
-`require` | A map of zero or more claims that must all be present and match against one or more values. If no claims are specified in `require`, all tokens that are validly signed by the trusted issuers or secrets will pass. If more than one claim is specified, each is required (i.e. an AND relationship exists for all the specified claims). For each claim, multiple values may be specified and the claim will be valid if any matches (i.e. an OR relationship exists for required values within a claim). fnmatch-style wildcards are optionally supported for claims in issued JWTs. If you do not wish to support wildcard claims, simply do not put such wildcards into the JWTs that you issue. See below for examples and the variables available with template interpolation.
+`require` | A map of zero or more claims that must all be present and match against one or more values. If no claims are specified in `require`, all tokens that are validly signed by the trusted issuers or secrets will pass. If more than one claim is specified, each is required (i.e. an AND relationship exists for all the specified claims). For each claim, multiple values may be specified and the claim will be valid if any matches (i.e. a default OR relationship exists for required values within a claim). It is possible to specify alternate logic using `$and` and `$or` operators (see Claim Matching examples below). fnmatch-style wildcards are optionally supported for claims in issued JWTs. If you do not wish to support wildcard claims, simply do not put such wildcards into the JWTs that you issue. See below for examples and the variables available with template interpolation.
 `headerMap` | A map in the form of header -> claim. Headers will be added (or overwritten) to the forwarded HTTP request from the claim values in the token. If the claim is not present, no action for that value is taken (and any existing header will remain unchanged).
 `removeMissingHeaders` | When set to `true`, remove any headers provided in the request that are named in the `headerMap` but are not present in the token as claims. This may be an important security consideration for some uses of headers if your JWT provider cannot be relied upon to provide an expected claim in all situations. Default: `false`.
 `cookieName` | Name of the cookie to retrieve the token from if present. Default: `Authorization`. If token retrieval from cookies must be disabled for some reason, set to an empty string.  If `forwardAuth` is `false`, the cookie will be removed before forwarding to the backend.
@@ -162,6 +162,7 @@ require:
   "iss": "auth.example.com",
   "aud": "*.example.com"
 }
+
 ```
 Note that the wildcard claim is granted to the _user_ in their JWT, not asked for in the requirements. I.e. you are granting a key that can open multiple locks rather than creating a lock that accepts multiple keys. If you don't want to support these optional wildcards, simply do not issue such JWTs.
 
@@ -179,6 +180,43 @@ require:
     "app1.example.com": ["user", "admin"],
     "app2.example.com": ["user"]
   }
+}
+```
+
+#### And logic
+```yaml
+require:
+  role:
+    $and: ["hr", "power"] # both are required
+```
+Note that, similar to MongoDB, the `$and` and `$or` operators are a single-value object with operator as the key and the choices as an array value
+
+```json
+{
+  "role": ["hr", "power"],
+}
+```
+
+
+#### Complex nested logic
+```yaml
+require:
+  role:
+    $or:
+      - $and: ["hr", "power"] # both are required
+      - "admin" # this alone will pass
+```
+Note that mixing yaml array styles here is arbitrary and both are used to enhance clarity of the structure
+
+```json
+{
+  "role": ["hr", "power"],
+}
+```
+
+```json
+{
+  "role": ["admin"],
 }
 ```
 
