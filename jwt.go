@@ -10,7 +10,6 @@ import (
 	"html"
 	"html/template"
 	"log"
-	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -589,8 +588,11 @@ func NewTemplate(text string) *template.Template {
 // The purpose of environment variables is to allow a easier way to set a configurable but then fixed value for a claim
 // requirement in the configuration file (as rewriting the configuration file is harder than setting environment variables).
 func (plugin *JWTPlugin) NewTemplateVariables(request *http.Request) *TemplateVariables {
+	// copy the environment variables
 	variables := make(TemplateVariables, len(plugin.environment)+6)
-	maps.Copy(variables, plugin.environment)
+	for key, value := range plugin.environment {
+		variables[key] = value
+	}
 
 	variables["Method"] = request.Method
 	variables["Host"] = request.Host
