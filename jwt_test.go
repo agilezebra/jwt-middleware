@@ -1210,6 +1210,21 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
+			Name:          "remove headers when optional and no token",
+			Expect:        http.StatusOK,
+			Headers:       map[string]string{"X-Other": "other", "X-Id": "impersonated"},
+			ExpectHeaders: map[string]string{"X-Other": "other"},
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test
+				optional: true
+				headerMap:
+					X-Audience: aud
+					X-Id: user
+				removeMissingHeaders: true`,
+		},
+		{
 			Name:          "cookies",
 			Expect:        http.StatusOK,
 			ExpectCookies: map[string]string{"Test": "test", "Other": "other"},

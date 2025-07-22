@@ -10,6 +10,7 @@ import (
 	"html"
 	"html/template"
 	"log"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -214,7 +215,7 @@ func parseDuration(duration string) (time.Duration, error) {
 	return time.ParseDuration(duration)
 }
 
-// fetchRoutine prefetches and rereshes keys for all issuers in the plugin's configuration optionally at the given intervals.
+// fetchRoutine prefetches and refreshes keys for all issuers in the plugin's configuration optionally at the given intervals.
 func (plugin *JWTPlugin) fetchRoutine(delayPrefetch time.Duration, refreshKeysInterval time.Duration) {
 	// If we have an initial delay, which may be 0, wait for that before the first fetch
 	if delayPrefetch != -1 {
@@ -234,7 +235,7 @@ func (plugin *JWTPlugin) fetchRoutine(delayPrefetch time.Duration, refreshKeysIn
 func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	variables := plugin.NewTemplateVariables(request)
 	status, err := plugin.validate(request, variables)
-	if err == nil {
+	if err == nil { // if NO error
 		// Request is valid, pass to the next handler and we're done
 		plugin.next.ServeHTTP(response, request)
 	} else {
@@ -283,6 +284,8 @@ func (plugin *JWTPlugin) validate(request *http.Request, variables *TemplateVari
 		if !plugin.optional {
 			return http.StatusUnauthorized, fmt.Errorf("no token provided")
 		}
+
+		plugin.removeMappedHeaders(request)
 	} else {
 		// Token provided
 		token, err := plugin.parser.Parse(token, plugin.getKey)
@@ -325,6 +328,7 @@ func (plugin *JWTPlugin) mapClaimsToHeaders(claims jwt.MapClaims, request *http.
 	for header, claim := range plugin.headerMap {
 		value, ok := claims[claim]
 		if ok {
+			request.Header.Del(header)
 			switch value := value.(type) {
 			case []any, map[string]any, nil:
 				json, err := json.Marshal(value)
@@ -339,6 +343,13 @@ func (plugin *JWTPlugin) mapClaimsToHeaders(claims jwt.MapClaims, request *http.
 		} else if plugin.removeMissingHeaders {
 			request.Header.Del(header)
 		}
+	}
+}
+
+// removeMappedHeaders arbitrarily removes all target headers named in the headerMap from the request.
+func (plugin *JWTPlugin) removeMappedHeaders(request *http.Request) {
+	for header := range plugin.headerMap {
+		request.Header.Del(header)
 	}
 }
 
@@ -578,11 +589,8 @@ func NewTemplate(text string) *template.Template {
 // The purpose of environment variables is to allow a easier way to set a configurable but then fixed value for a claim
 // requirement in the configuration file (as rewriting the configuration file is harder than setting environment variables).
 func (plugin *JWTPlugin) NewTemplateVariables(request *http.Request) *TemplateVariables {
-	// copy the environment variables
 	variables := make(TemplateVariables, len(plugin.environment)+6)
-	for key, value := range plugin.environment {
-		variables[key] = value
-	}
+	maps.Copy(variables, plugin.environment)
 
 	variables["Method"] = request.Method
 	variables["Host"] = request.Host

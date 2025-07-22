@@ -19,7 +19,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/agilezebra/jwt-middleware
-      version: v1.3.1
+      version: v1.3.2
 ```
 1b. or with command-line options:
 
@@ -27,7 +27,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/agilezebra/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.3.1"
+  - "--experimental.plugins.jwt.version=v1.3.2"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
@@ -86,7 +86,7 @@ Name | Description
 `delayPrefetch` | Delay prefetching keys from `issuers` by the given duration (expressed in `time.ParseDuration` format - e.g. "300ms", "5s"). This is particularly useful if your openid server is behind the very traefik service that is loading the plugin and you need to give it time to be ready for your request. This has no effect if `skipPrefetch` is set.
 `refreshKeysInterval` | Arbitrarily refresh all keys from all `issuers` in a background thread every given duration (after any prefetch).
 `require` | A map of zero or more claims that must all be present and match against one or more values. If no claims are specified in `require`, all tokens that are validly signed by the trusted issuers or secrets will pass. If more than one claim is specified, each is required (i.e. an AND relationship exists for all the specified claims). For each claim, multiple values may be specified and the claim will be valid if any matches (i.e. a default OR relationship exists for required values within a claim). It is possible to specify alternate logic using `$and` and `$or` operators (see Claim Matching examples below). fnmatch-style wildcards are optionally supported for claims in issued JWTs. If you do not wish to support wildcard claims, simply do not put such wildcards into the JWTs that you issue. See below for examples and the variables available with template interpolation.
-`headerMap` | A map in the form of header -> claim. Headers will be added (or overwritten) to the forwarded HTTP request from the claim values in the token. If the claim is not present, no action for that value is taken (and any existing header will remain unchanged).
+`headerMap` | A map in the form of header -> claim. Headers will be added (or overwritten if already present) to the forwarded HTTP request from the claim values in the token. If the claim is not present (and `removeMissingHeaders` is not set - see below) no action for that value is taken (and any provided header will be passed through unchanged). It's essential to set `removeMissingHeaders` if any of these headers are treated in a security related context to prevent  
 `removeMissingHeaders` | When set to `true`, remove any headers provided in the request that are named in the `headerMap` but are not present in the token as claims. This may be an important security consideration for some uses of headers if your JWT provider cannot be relied upon to provide an expected claim in all situations. Default: `false`.
 `cookieName` | Name of the cookie to retrieve the token from if present. Default: `Authorization`. If token retrieval from cookies must be disabled for some reason, set to an empty string.  If `forwardAuth` is `false`, the cookie will be removed before forwarding to the backend.
 `headerName` | Name of the Header to retrieve the token from if present. Default: `Authorization`. If token retrieval from headers must be disabled for some reason, set to an empty string. Tokens are supported either with or without a `Bearer ` prefix. If `forwardAuth` is `false`, the header will be removed before forwarding to the backend.
@@ -95,7 +95,7 @@ Name | Description
 `redirectForbidden` | URL to redirect Forbidden (403) claims to instead of returning a 403 status code. As above, this is intended for interactive requests and the same template interpolation applies. This is most useful to redirect a user to explain that they do not have access to the resource, even though they are authenticated. Such pages may, for example, offer explanations of how access may be obtained or may offer to allow the user to try using a different identity. If `redirectUnauthorized` is given but not `redirectForbidden` the URL for `redirectUnauthorized` will be used, rather than returning an HTTP status to an interactive session.
 `freshness` | Integer value in seconds to consider a token as "fresh" based on its `iat` claim, if present. If a token is not within this freshness window, the plugin allows that a user may have recently had new permissions and thus new claims granted since last logging in, and will issue a 401 in place of a 403 (as well as redirecting interactive sessions as if Unauthorized). Once a user has logged in again, their token will be within the freshness window and a definitive 403 can be returned or not on subsequent attempts. Default 3600 = 1 hour. Set freshness = 0 to disable.
 `forwardToken` | Boolean indicating whether the token should be forwarded to the backend. Default true. If multiple tokens are present in different locations (e.g. cookie and header) and forwarding is false, only the token used will be removed. 
-`optional` | Validate tokens according to the normal rules but don't require that a token be present. If specific claim requirements are specified in `require` but with `optional` set to `true` and a token is not present, access will be permitted even though the requirements are obviously not met, which may not be what you want or expect. In this case, no headers will be set from claims (as there aren't any). This is quite a niche case but is intended for use on endpoints that support both authorized and anonymous access and you want JWTs verified if present.
+`optional` | Validate tokens according to the normal rules but don't require that a token be present. If specific claim requirements are specified in `require` but with `optional` set to `true` and a token is not present, access will be permitted even though the requirements are obviously not met, which may not be what you want or expect. In this case, no headers will be set from claims (as there aren't any) and all headers specified in `headerMap` are removed if present in the request (regardless of `removeMissingHeaders`). This is quite a niche case but is intended for use on endpoints that support both authorized and anonymous access and you want JWTs verified if present. 
 `insecureSkipVerify` | A list of issuers' domains for which TLS certificates should not be verified (i.e. use `InsecureSkipVerify: true`). Only the hostname/domain should be specified (i.e. no scheme or trailing slash). Applies to both the openid-configuration and jwks calls.
 `rootCAs` | One or more additional root certificate authorities, each expressed either inline in PEM format, or as a path to a file, to be combined with the system cert pool when verifying server certificates.
 
