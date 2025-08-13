@@ -1,6 +1,6 @@
 // Simple logger to mimic the traefik logger in the absence of actual access to it.
-// For DEBUG we output to stdout add this will be handled per https://github.com/traefik/traefik/issues/8204#issuecomment-1012952477
-// For ERROR we just use the log package and traefik will handled.
+// For DEBUG we output to stdout and this will be handled per https://github.com/traefik/traefik/issues/8204#issuecomment-1012952477
+// For ERROR we just use the log package and traefik will handle.
 // For INFO and WARN we output to stderr in a matching format.
 package logger
 
