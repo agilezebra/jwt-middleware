@@ -44,6 +44,7 @@ type Config struct {
 	RemoveMissingHeaders bool              `json:"removeMissingHeaders,omitempty"`
 	ForwardToken         bool              `json:"forwardToken,omitempty"`
 	Freshness            int64             `json:"freshness,omitempty"`
+	LogUnauthorized      string            `json:"logUnauthorized,omitempty"`
 }
 
 // JWTPlugin is a traefik middleware plugin that authorizes access based on JWT tokens.
@@ -70,6 +71,7 @@ type JWTPlugin struct {
 	forwardToken         bool                      // If true, the token is forwarded to the backend
 	freshness            int64                     // The maximum age of a token in seconds
 	environment          map[string]string         // Map of environment variables
+	logUnauthorized      string                    // If set, log the details of the failed requirements to the level specified
 }
 
 // TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
@@ -161,6 +163,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		removeMissingHeaders: config.RemoveMissingHeaders,
 		forwardToken:         config.ForwardToken,
 		freshness:            config.Freshness,
+		logUnauthorized:      strings.ToUpper(config.LogUnauthorized),
 		environment:          environment(),
 	}
 
@@ -608,6 +611,10 @@ func (plugin *JWTPlugin) NewTemplateVariables(request *http.Request) *TemplateVa
 			variables["Scheme"] = "https"
 		}
 		variables["URL"] = fmt.Sprintf("%s://%s%s", variables["Scheme"], variables["Host"], variables["Path"])
+	}
+
+	if plugin.logUnauthorized != "" {
+		variables["logUnauthorized"] = plugin.logUnauthorized
 	}
 
 	return &variables

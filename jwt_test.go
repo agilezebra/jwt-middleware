@@ -479,6 +479,7 @@ func TestServeHTTP(tester *testing.T) {
 			Expect: http.StatusForbidden,
 			Config: `
 				secret: fixed secret
+				logUnauthorized: info
 				require:
 					authority: "test.company.com"`,
 			Claims:     `{"authority": "*.example.com"}`,
@@ -1368,6 +1369,18 @@ func TestServeHTTP(tester *testing.T) {
 			CookieName: "Authorization",
 		},
 		{
+			Name:   "invalid integer claim",
+			Expect: http.StatusForbidden,
+			Config: `
+				infoToStdout: true
+				logUnauthorized: info
+				require:
+					int: 0`,
+			ClaimsMap:  jwt.MapClaims{"int": 1},
+			Method:     jwt.SigningMethodES256,
+			CookieName: "Authorization",
+		},
+		{
 			Name:   "float claim",
 			Expect: http.StatusOK,
 			Config: `
@@ -1375,6 +1388,18 @@ func TestServeHTTP(tester *testing.T) {
 				require:
 					float: 0.0`,
 			ClaimsMap:  jwt.MapClaims{"float": 0.0},
+			Method:     jwt.SigningMethodES256,
+			CookieName: "Authorization",
+		},
+		{
+			Name:   "invalid float claim",
+			Expect: http.StatusForbidden,
+			Config: `
+				infoToStdout: true
+				logUnauthorized: info
+				require:
+					float: 0.0`,
+			ClaimsMap:  jwt.MapClaims{"float": 1.0},
 			Method:     jwt.SigningMethodES256,
 			CookieName: "Authorization",
 		},

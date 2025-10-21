@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/agilezebra/jwt-middleware/logger"
 	"github.com/danwakefield/fnmatch"
 )
 
@@ -122,6 +123,7 @@ outer:
 // variables is required in the interface and passed on recursively but ultimately ignored by ValueRequirement
 // having been already interpolated by TemplateRequirement
 func (requirement ValueRequirement) Validate(value any, variables *TemplateVariables) error {
+	level, verbose := (*variables)["logUnauthorized"]
 	switch value := value.(type) {
 	case []any:
 		for _, value := range value {
@@ -142,21 +144,32 @@ func (requirement ValueRequirement) Validate(value any, variables *TemplateVaria
 	case string:
 		required, ok := requirement.value.(string)
 		if ok {
-			if fnmatch.Match(value, required, 0) || value == fmt.Sprintf("*.%s", required) {
+			if wildcardMatch(value, required) {
 				return nil
+			}
+			if verbose {
+				logger.Log(level, "claim is not valid: require:%s got:%v", required, value)
 			}
 		}
 	case json.Number:
 		switch requirement.value.(type) {
 		case int:
 			converted, err := value.Int64()
-			if err == nil && converted == int64(requirement.value.(int)) {
+			required := int64(requirement.value.(int))
+			if err == nil && converted == required {
 				return nil
+			}
+			if verbose {
+				logger.Log(level, "claim is not valid: require:%d got:%v", required, value)
 			}
 		case float64:
 			converted, err := value.Float64()
-			if err == nil && converted == requirement.value.(float64) {
+			required := requirement.value.(float64)
+			if err == nil && converted == required {
 				return nil
+			}
+			if verbose {
+				logger.Log(level, "claim is not valid: require:%f got:%v", required, value)
 			}
 		default:
 			log.Printf("unsupported requirement type for json.Number comparison: %T %v", requirement.value, requirement.value)
