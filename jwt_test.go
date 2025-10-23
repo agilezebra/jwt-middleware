@@ -279,6 +279,17 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
+			Name:   "template requirement with functions",
+			Expect: http.StatusOK,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: '{{Index (Split .Host ".") 0}}'`,
+			Claims:     `{"authority": "app"}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
 			Name:   "template requirement wth wildcard claim",
 			Expect: http.StatusOK,
 			Config: `

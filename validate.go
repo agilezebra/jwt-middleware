@@ -74,7 +74,7 @@ func NewRequirement(value any, group string) Requirement {
 	case string:
 		if strings.Contains(value, "{{") && strings.Contains(value, "}}") {
 			return TemplateRequirement{
-				template: template.Must(template.New("template").Option("missingkey=error").Parse(value)),
+				template: NewTemplate(value),
 			}
 		}
 	}
