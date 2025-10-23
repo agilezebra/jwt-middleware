@@ -582,6 +582,8 @@ func NewTemplate(text string) *template.Template {
 	functions := template.FuncMap{
 		"URLQueryEscape": url.QueryEscape,
 		"HTMLEscape":     html.EscapeString,
+		"Split":          strings.Split,
+		"Index":          func(slice []string, index int) string { return slice[index] },
 	}
 	return template.Must(template.New("template").Funcs(functions).Option("missingkey=error").Parse(text))
 }
