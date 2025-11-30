@@ -22,7 +22,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Config is the configuration for the plugin
+// Config is the configuration for the plugin.
 type Config struct {
 	ValidMethods         []string          `json:"validMethods,omitempty"`
 	Issuers              []string          `json:"issuers,omitempty"`
