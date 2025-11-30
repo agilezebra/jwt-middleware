@@ -1,6 +1,6 @@
 module github.com/agilezebra/jwt-middleware
 
-go 1.24.1
+go 1.25.4
 
 require (
 	github.com/danwakefield/fnmatch v0.0.0-20160403171240-cbb64ac3d964
