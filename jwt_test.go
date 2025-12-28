@@ -43,6 +43,7 @@ type Test struct {
 	URL                   string             // Used to pass the URL from the server to the handlers (which must exist before the server)
 	Keys                  jose.JSONWebKeySet // JWKS used in test server
 	Method                jwt.SigningMethod  // Signing method for the token
+	Secret                string             // Shared secret to use instead of that in the config for signing during test (empty means use config)
 	Private               string             // Private key to use to sign the token rather than generating one
 	Kid                   string             // Kid for private key to use to sign the token rather than generating one
 	CookieName            string             // The name of the cookie to use
@@ -1583,6 +1584,31 @@ func TestServeHTTP(tester *testing.T) {
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
+		{
+			Name:   "base64 encoded secret",
+			Expect: http.StatusOK,
+			Config: `
+				secret: gJhi9UQPUVB4GdkPibMLdNVqj1Y6t4ZYHGAnZhUkVoA=
+				secretBase64Encoded: true
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodHS256,
+			CookieName: "Authorization",
+		},
+		{
+			Name:              "invalid base64 encoded secret",
+			ExpectPluginError: "illegal base64 data at input byte 14",
+			Config: `
+				secret: invalid-base64!
+				secretBase64Encoded: true
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Secret:     "gJhi9UQPUVB4GdkPibMLdNVqj1Y6t4ZYHGAnZhUkVoA=",
+			Method:     jwt.SigningMethodHS256,
+			CookieName: "Authorization",
+		},
 	}
 
 	for _, test := range tests {
@@ -1726,6 +1752,10 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	config, err := createConfig(test.Config)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+
+	if test.Secret == "" {
+		test.Secret = config.Secret
 	}
 
 	context := context.Background()
@@ -1930,13 +1960,21 @@ func createTokenAndSaveKey(test *Test, config *Config) string {
 	var private any
 	var public any
 	var publicPEM string
+	var err error
 	switch method {
 	case jwt.SigningMethodHS256, jwt.SigningMethodHS384, jwt.SigningMethodHS512:
 		// HMAC - use the provided key from the config Secret.
-		if config.Secret == "" {
+		if test.Secret == "" {
 			panic(fmt.Errorf("Secret is required for %s", method.Alg()))
 		}
-		private = []byte(config.Secret)
+		if config.SecretBase64Encoded {
+			private, err = base64.URLEncoding.DecodeString(test.Secret)
+			if err != nil {
+				panic(err)
+			}
+		} else {
+			private = []byte(test.Secret)
+		}
 	case jwt.SigningMethodRS256, jwt.SigningMethodRS384, jwt.SigningMethodRS512:
 		// RSA
 		if test.Private == "" {
@@ -1953,11 +1991,10 @@ func createTokenAndSaveKey(test *Test, config *Config) string {
 			}))
 		} else {
 			// Use the provided private key
-			secret, err := jwt.ParseRSAPrivateKeyFromPEM([]byte(trimLines(test.Private)))
+			private, err = jwt.ParseRSAPrivateKeyFromPEM([]byte(trimLines(test.Private)))
 			if err != nil {
 				panic(err)
 			}
-			private = secret
 		}
 	case jwt.SigningMethodES256, jwt.SigningMethodES384, jwt.SigningMethodES512:
 		// ECDSA
@@ -1988,7 +2025,6 @@ func createTokenAndSaveKey(test *Test, config *Config) string {
 			}))
 		} else {
 			// Use the provided private key
-			var err error
 			switch method {
 			case jwt.SigningMethodES256:
 				private, err = jwt.ParseECPrivateKeyFromPEM([]byte(trimLines(test.Private)))

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -33,6 +34,7 @@ type Config struct {
 	RootCAs              []string          `json:"rootCAs,omitempty"`
 	Secret               string            `json:"secret,omitempty"`
 	Secrets              map[string]string `json:"secrets,omitempty"`
+	SecretBase64Encoded  bool              `json:"secretBase64Encoded,omitempty"`
 	Require              map[string]any    `json:"require,omitempty"`
 	Optional             bool              `json:"optional,omitempty"`
 	RedirectUnauthorized string            `json:"redirectUnauthorized,omitempty"`
@@ -92,10 +94,18 @@ func CreateConfig() *Config {
 // setupKey parses `raw` and returns either the appropriate public key, if it's a PEM, or treats it as a shared HMAC secret.
 // Note that we could also use pemContent in here and allow paths to PEMs, as we do for rootCAs,
 // but there is no way to know a bad path from an HMAC secret.
-func setupKey(raw string) (any, error) {
+func setupKey(raw string, base64Encoded bool) (any, error) {
 	// If raw is empty, we don't have a fixed key/secret
 	if raw == "" {
 		return nil, nil
+	}
+
+	if base64Encoded {
+		decoded, err := base64.URLEncoding.DecodeString(raw)
+		if err != nil {
+			return nil, err
+		}
+		raw = string(decoded)
 	}
 
 	// If raw is a PEM-encoded public key, return the public key
@@ -129,7 +139,7 @@ func environment() map[string]string {
 func New(_ context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	log.SetFlags(0)
 
-	key, err := setupKey(config.Secret)
+	key, err := setupKey(config.Secret, config.SecretBase64Encoded)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +179,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 
 	// If we have keys/secrets, add them to the key cache
 	for kid, raw := range config.Secrets {
-		key, err := setupKey(raw)
+		key, err := setupKey(raw, config.SecretBase64Encoded)
 		if err != nil {
 			return nil, fmt.Errorf("kid %s: %v", kid, err)
 		}
