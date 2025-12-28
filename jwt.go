@@ -103,7 +103,7 @@ func setupKey(raw string, base64Encoded bool) (any, error) {
 	if base64Encoded {
 		decoded, err := base64.URLEncoding.DecodeString(raw)
 		if err != nil {
-			return nil, fmt.Errorf("decode base64: %w", err)
+			return nil, err
 		}
 		raw = string(decoded)
 	}
