@@ -1584,6 +1584,31 @@ func TestServeHTTP(tester *testing.T) {
 			Method:     jwt.SigningMethodHS256,
 			HeaderName: "Authorization",
 		},
+		{
+			Name:   "base64 encoded secret",
+			Expect: http.StatusOK,
+			Config: `
+				secret: gJhi9UQPUVB4GdkPibMLdNVqj1Y6t4ZYHGAnZhUkVoA=
+				secretBase64Encoded: true
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodHS256,
+			CookieName: "Authorization",
+		},
+		{
+			Name:              "invalid base64 encoded secret",
+			ExpectPluginError: "illegal base64 data at input byte 14",
+			Config: `
+				secret: invalid-base64!
+				secretBase64Encoded: true
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Secret:     "gJhi9UQPUVB4GdkPibMLdNVqj1Y6t4ZYHGAnZhUkVoA=",
+			Method:     jwt.SigningMethodHS256,
+			CookieName: "Authorization",
+		},
 	}
 
 	for _, test := range tests {
@@ -1942,7 +1967,14 @@ func createTokenAndSaveKey(test *Test, config *Config) string {
 		if test.Secret == "" {
 			panic(fmt.Errorf("Secret is required for %s", method.Alg()))
 		}
-		private = []byte(config.Secret)
+		if config.SecretBase64Encoded {
+			private, err = base64.URLEncoding.DecodeString(test.Secret)
+			if err != nil {
+				panic(err)
+			}
+		} else {
+			private = []byte(test.Secret)
+		}
 	case jwt.SigningMethodRS256, jwt.SigningMethodRS384, jwt.SigningMethodRS512:
 		// RSA
 		if test.Private == "" {
