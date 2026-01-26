@@ -42,6 +42,7 @@ type Test struct {
 	Config                string             // The dynamic yml configuration to pass to the plugin
 	URL                   string             // Used to pass the URL from the server to the handlers (which must exist before the server)
 	Keys                  jose.JSONWebKeySet // JWKS used in test server
+	RequestMethod         string             // HTTP method used for the request
 	Method                jwt.SigningMethod  // Signing method for the token
 	Secret                string             // Shared secret to use instead of that in the config for signing during test (empty means use config)
 	Private               string             // Private key to use to sign the token rather than generating one
@@ -107,6 +108,17 @@ func TestServeHTTP(tester *testing.T) {
 				require:
 					aud: test
 				optional: true
+				parameterName: token`,
+		},
+		{
+			Name:          "unauthenticated method options with no token",
+			RequestMethod: http.MethodOptions,
+			Expect:        http.StatusOK,
+			Config: `
+				unauthenticatedMethods:
+					- "options"
+				require:
+					aud: test
 				parameterName: token`,
 		},
 		{
@@ -1758,10 +1770,14 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 		test.Secret = config.Secret
 	}
 
+	if test.RequestMethod == "" {
+		test.RequestMethod = http.MethodGet
+	}
+
 	context := context.Background()
 
 	// Create the request
-	request, err := http.NewRequestWithContext(context, http.MethodGet, "https://app.example.com/home?id=1&other=2", nil)
+	request, err := http.NewRequestWithContext(context, test.RequestMethod, "https://app.example.com/home?id=1&other=2", nil)
 	if err != nil {
 		return nil, nil, nil, err
 	}

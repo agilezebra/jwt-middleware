@@ -19,7 +19,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/agilezebra/jwt-middleware
-      version: v1.3.6
+      version: v1.3.7
 ```
 1b. or with command-line options:
 
@@ -27,7 +27,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/agilezebra/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.3.6"
+  - "--experimental.plugins.jwt.version=v1.3.7"
 ```
 
 2) Configure and activate the plugin as a middleware in your dynamic traefik config:
@@ -97,6 +97,7 @@ Name | Description
 `freshness` | Integer value in seconds to consider a token as "fresh" based on its `iat` claim, if present. If a token is not within this freshness window, the plugin allows that a user may have recently had new permissions and thus new claims granted since last logging in, and will issue a 401 in place of a 403 (as well as redirecting interactive sessions as if Unauthorized). Once a user has logged in again, their token will be within the freshness window and a definitive 403 can be returned or not on subsequent attempts. Default 3600 = 1 hour. Set freshness = 0 to disable.
 `forwardToken` | Boolean indicating whether the token should be forwarded to the backend. Default true. If multiple tokens are present in different locations (e.g. cookie and header) and forwarding is false, only the token used will be removed. 
 `optional` | Validate tokens according to the normal rules but don't require that a token be present. If specific claim requirements are specified in `require` but with `optional` set to `true` and a token is not present, access will be permitted even though the requirements are obviously not met, which may not be what you want or expect. In this case, no headers will be set from claims (as there aren't any) and all headers specified in `headerMap` are removed if present in the request (regardless of `removeMissingHeaders`). This is quite a niche case but is intended for use on endpoints that support both authorized and anonymous access and you want JWTs verified if present. 
+`unauthenticatedMethods` | A list of HTTP methods that should be allowed to pass without requiring authentication. Default: empty, meaning no methods are exempt. If specified, any requests with a method in this list will not require a valid token. Methods are matched case-insensitively.
 `insecureSkipVerify` | A list of issuers' domains for which TLS certificates should not be verified (i.e. use `InsecureSkipVerify: true`). Only the hostname/domain should be specified (i.e. no scheme or trailing slash). Applies to both the openid-configuration and jwks calls.
 `rootCAs` | One or more additional root certificate authorities, each expressed either inline in PEM format, or as a path to a file, to be combined with the system cert pool when verifying server certificates.
 

@@ -25,55 +25,60 @@ import (
 
 // Config is the configuration for the plugin.
 type Config struct {
-	ValidMethods         []string          `json:"validMethods,omitempty"`
-	Issuers              []string          `json:"issuers,omitempty"`
-	SkipPrefetch         bool              `json:"skipPrefetch,omitempty"`
-	DelayPrefetch        string            `json:"delayPrefetch,omitempty"`
-	RefreshKeysInterval  string            `json:"refreshKeysInterval,omitempty"`
-	InsecureSkipVerify   []string          `json:"insecureSkipVerify,omitempty"`
-	RootCAs              []string          `json:"rootCAs,omitempty"`
-	Secret               string            `json:"secret,omitempty"`
-	Secrets              map[string]string `json:"secrets,omitempty"`
-	SecretBase64Encoded  bool              `json:"secretBase64Encoded,omitempty"`
-	Require              map[string]any    `json:"require,omitempty"`
-	Optional             bool              `json:"optional,omitempty"`
-	RedirectUnauthorized string            `json:"redirectUnauthorized,omitempty"`
-	RedirectForbidden    string            `json:"redirectForbidden,omitempty"`
-	CookieName           string            `json:"cookieName,omitempty"`
-	HeaderName           string            `json:"headerName,omitempty"`
-	ParameterName        string            `json:"parameterName,omitempty"`
-	HeaderMap            map[string]string `json:"headerMap,omitempty"`
-	RemoveMissingHeaders bool              `json:"removeMissingHeaders,omitempty"`
-	ForwardToken         bool              `json:"forwardToken,omitempty"`
-	Freshness            int64             `json:"freshness,omitempty"`
-	LogUnauthorized      string            `json:"logUnauthorized,omitempty"`
+	ValidMethods           []string          `json:"validMethods,omitempty"`
+	Issuers                []string          `json:"issuers,omitempty"`
+	SkipPrefetch           bool              `json:"skipPrefetch,omitempty"`
+	DelayPrefetch          string            `json:"delayPrefetch,omitempty"`
+	RefreshKeysInterval    string            `json:"refreshKeysInterval,omitempty"`
+	InsecureSkipVerify     []string          `json:"insecureSkipVerify,omitempty"`
+	RootCAs                []string          `json:"rootCAs,omitempty"`
+	Secret                 string            `json:"secret,omitempty"`
+	Secrets                map[string]string `json:"secrets,omitempty"`
+	SecretBase64Encoded    bool              `json:"secretBase64Encoded,omitempty"`
+	Require                map[string]any    `json:"require,omitempty"`
+	Optional               bool              `json:"optional,omitempty"`
+	UnauthenticatedMethods []string          `json:"unauthenticatedMethods,omitempty"`
+	RedirectUnauthorized   string            `json:"redirectUnauthorized,omitempty"`
+	RedirectForbidden      string            `json:"redirectForbidden,omitempty"`
+	CookieName             string            `json:"cookieName,omitempty"`
+	HeaderName             string            `json:"headerName,omitempty"`
+	ParameterName          string            `json:"parameterName,omitempty"`
+	HeaderMap              map[string]string `json:"headerMap,omitempty"`
+	RemoveMissingHeaders   bool              `json:"removeMissingHeaders,omitempty"`
+	ForwardToken           bool              `json:"forwardToken,omitempty"`
+	Freshness              int64             `json:"freshness,omitempty"`
+	LogUnauthorized        string            `json:"logUnauthorized,omitempty"`
 }
+
+// CaseInsensitiveSet is a set of strings that can be checked for membership in a case-insensitive manner.
+type CaseInsensitiveSet map[string]struct{}
 
 // JWTPlugin is a traefik middleware plugin that authorizes access based on JWT tokens.
 type JWTPlugin struct {
-	next                 http.Handler              // The next http.Handler in the chain
-	name                 string                    // The name of the plugin
-	parser               *jwt.Parser               // A JWT parser instance, which we use for all token parsing
-	secret               any                       // A single anonymous fixed public key or HMAC secret, or nil
-	issuers              []string                  // A list of valid issuers that we trust to fetch keys from
-	clients              map[string]*http.Client   // A map of clients for specific issuers that skip certificate verification
-	defaultClient        *http.Client              // A default client for fetching keys with certificate verification, optionally with custom root CAs
-	require              Requirement               // A map of requirements for each claim (which we treat simply as a Requirement to be validated)
-	lock                 sync.RWMutex              // Read-write lock for the keys and issuerKeys maps
-	keys                 map[string]any            // A map of key IDs to public keys or shared HMAC secrets
-	issuerKeys           map[string]map[string]any // A map of issuer URLs to key IDs to public keys, for reference counting / purging
-	optional             bool                      // If true, requests without a token are allowed but any token provided must still be valid
-	redirectUnauthorized *template.Template        // A template for redirecting unauthorized requests
-	redirectForbidden    *template.Template        // A template for redirecting forbidden requests
-	cookieName           string                    // The name of the cookie to extract the token from
-	headerName           string                    // The name of the header to extract the token from
-	parameterName        string                    // The name of the query parameter to extract the token from
-	headerMap            map[string]string         // A map of claim names to header names to forward to the backend
-	removeMissingHeaders bool                      // If true, remove missing headers from the request
-	forwardToken         bool                      // If true, the token is forwarded to the backend
-	freshness            int64                     // The maximum age of a token in seconds
-	environment          map[string]string         // Map of environment variables
-	logUnauthorized      string                    // If set, log the details of the failed requirements to the level specified
+	next                   http.Handler              // The next http.Handler in the chain
+	name                   string                    // The name of the plugin
+	parser                 *jwt.Parser               // A JWT parser instance, which we use for all token parsing
+	secret                 any                       // A single anonymous fixed public key or HMAC secret, or nil
+	issuers                []string                  // A list of valid issuers that we trust to fetch keys from
+	clients                map[string]*http.Client   // A map of clients for specific issuers that skip certificate verification
+	defaultClient          *http.Client              // A default client for fetching keys with certificate verification, optionally with custom root CAs
+	require                Requirement               // A map of requirements for each claim (which we treat simply as a Requirement to be validated)
+	lock                   sync.RWMutex              // Read-write lock for the keys and issuerKeys maps
+	keys                   map[string]any            // A map of key IDs to public keys or shared HMAC secrets
+	issuerKeys             map[string]map[string]any // A map of issuer URLs to key IDs to public keys, for reference counting / purging
+	optional               bool                      // If true, requests without a token are allowed but any token provided must still be valid
+	unauthenticatedMethods CaseInsensitiveSet        // A set of HTTP methods that bypass authentication entirely
+	redirectUnauthorized   *template.Template        // A template for redirecting unauthorized requests
+	redirectForbidden      *template.Template        // A template for redirecting forbidden requests
+	cookieName             string                    // The name of the cookie to extract the token from
+	headerName             string                    // The name of the header to extract the token from
+	parameterName          string                    // The name of the query parameter to extract the token from
+	headerMap              map[string]string         // A map of claim names to header names to forward to the backend
+	removeMissingHeaders   bool                      // If true, remove missing headers from the request
+	forwardToken           bool                      // If true, the token is forwarded to the backend
+	freshness              int64                     // The maximum age of a token in seconds
+	environment            map[string]string         // Map of environment variables
+	logUnauthorized        string                    // If set, log the details of the failed requirements to the level specified
 }
 
 // TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
@@ -153,28 +158,29 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 	}
 
 	plugin := JWTPlugin{
-		next:                 next,
-		name:                 name,
-		parser:               jwt.NewParser(jwt.WithValidMethods(config.ValidMethods), jwt.WithJSONNumber()),
-		secret:               key,
-		issuers:              canonicalizeDomains(config.Issuers),
-		clients:              NewClients(config.InsecureSkipVerify),
-		defaultClient:        NewDefaultClient(config.RootCAs, true),
-		require:              NewRequirement(config.Require, "$and"),
-		keys:                 make(map[string]any),
-		issuerKeys:           make(map[string]map[string]any),
-		optional:             config.Optional,
-		redirectUnauthorized: NewTemplate(config.RedirectUnauthorized),
-		redirectForbidden:    NewTemplate(config.RedirectForbidden),
-		cookieName:           config.CookieName,
-		headerName:           config.HeaderName,
-		parameterName:        config.ParameterName,
-		headerMap:            config.HeaderMap,
-		removeMissingHeaders: config.RemoveMissingHeaders,
-		forwardToken:         config.ForwardToken,
-		freshness:            config.Freshness,
-		logUnauthorized:      strings.ToUpper(config.LogUnauthorized),
-		environment:          environment(),
+		next:                   next,
+		name:                   name,
+		parser:                 jwt.NewParser(jwt.WithValidMethods(config.ValidMethods), jwt.WithJSONNumber()),
+		secret:                 key,
+		issuers:                canonicalizeDomains(config.Issuers),
+		clients:                NewClients(config.InsecureSkipVerify),
+		defaultClient:          NewDefaultClient(config.RootCAs, true),
+		require:                NewRequirement(config.Require, "$and"),
+		keys:                   make(map[string]any),
+		issuerKeys:             make(map[string]map[string]any),
+		optional:               config.Optional,
+		unauthenticatedMethods: NewCaseInsensitiveSet(config.UnauthenticatedMethods),
+		redirectUnauthorized:   NewTemplate(config.RedirectUnauthorized),
+		redirectForbidden:      NewTemplate(config.RedirectForbidden),
+		cookieName:             config.CookieName,
+		headerName:             config.HeaderName,
+		parameterName:          config.ParameterName,
+		headerMap:              config.HeaderMap,
+		removeMissingHeaders:   config.RemoveMissingHeaders,
+		forwardToken:           config.ForwardToken,
+		freshness:              config.Freshness,
+		logUnauthorized:        strings.ToUpper(config.LogUnauthorized),
+		environment:            environment(),
 	}
 
 	// If we have keys/secrets, add them to the key cache
@@ -290,6 +296,10 @@ func (plugin *JWTPlugin) ServeHTTP(response http.ResponseWriter, request *http.R
 // It validates the request and returns the HTTP status code and an error if the request is not valid (i.e. if not http.StatusOK).
 // It also sets any headers that should be forwarded to the backend, as this is where we have the claims at hand.
 func (plugin *JWTPlugin) validate(request *http.Request, variables *TemplateVariables) (int, error) {
+	if plugin.unauthenticatedMethods.Contains(request.Method) {
+		return http.StatusOK, nil
+	}
+
 	token := plugin.extractToken(request)
 	if token == "" {
 		// No token provided
@@ -319,6 +329,15 @@ func (plugin *JWTPlugin) validate(request *http.Request, variables *TemplateVari
 	}
 
 	return http.StatusOK, nil
+}
+
+// Contains returns true if the set contains the given value, ignoring case.
+func (set CaseInsensitiveSet) Contains(value string) bool {
+	if len(set) == 0 {
+		return false
+	}
+	_, found := set[strings.ToUpper(value)]
+	return found
 }
 
 // allowRefresh returns true if freshness window is configured and the token has an iat claim that is older than the freshness window.
@@ -630,6 +649,17 @@ func (plugin *JWTPlugin) NewTemplateVariables(request *http.Request) *TemplateVa
 	}
 
 	return &variables
+}
+
+// NewStringSet returns a set of strings
+func NewCaseInsensitiveSet(values []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if value != "" {
+			set[strings.ToUpper(value)] = struct{}{}
+		}
+	}
+	return set
 }
 
 // expandTemplate returns the redirect URL from the plugin.redirect template and expands it with the given parameters.
