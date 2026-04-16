@@ -33,7 +33,7 @@ command:
   - "--experimental.plugins.jwt.version=v1.3.8"
 ```
 
-1) Configure and activate the plugin as a middleware in your dynamic traefik config:
+2. Configure and activate the plugin as a middleware in your dynamic traefik config:
 
 ```yaml
 http:
