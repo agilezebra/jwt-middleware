@@ -74,6 +74,8 @@ const (
 	keysServerStatus   = "keysServerStatus"
 	invalidJSON        = "invalidJSON"
 	traefikURL         = "traefikURL"
+	customJWKSEndpoint = "customJWKSEndpoint"
+	noIssuerKey        = "noIssuerKey"
 	yes                = "yes"
 	invalid            = "invalid/dummy"
 )
@@ -1609,6 +1611,40 @@ func TestServeHTTP(tester *testing.T) {
 			CookieName: "Authorization",
 		},
 		{
+			Name:         "custom JWKS endpoint (Firebase App Check style)",
+			Expect:       http.StatusOK,
+			ExpectCounts: map[string]int{jwksCalls: 1},
+			Config: `
+				skipPrefetch: true
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
+			Actions:    map[string]string{noAddIsser: yes, customJWKSEndpoint: "/v1/jwks"},
+		},
+		{
+			Name:         "custom JWKS endpoint with prefetch",
+			Expect:       http.StatusOK,
+			ExpectCounts: map[string]int{jwksCalls: 1},
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
+			Actions:    map[string]string{noAddIsser: yes, customJWKSEndpoint: "/v1/jwks"},
+			Wait:       "1s",
+		},
+		{
+			Name:              "issuer map entry missing issuer key is a config error",
+			ExpectPluginError: `issuer map entry is missing a valid "issuer" key`,
+			Config: `
+				require:
+					aud: test`,
+			Actions: map[string]string{noAddIsser: yes, customJWKSEndpoint: noIssuerKey},
+		},
+		{
 			Name:              "invalid base64 encoded secret",
 			ExpectPluginError: "illegal base64 data at input byte 14",
 			Config: `
@@ -1813,7 +1849,7 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	// Run a test server to provide the key(s)
 	var lock sync.Mutex // to synchronize access to the keys
 	mux := http.NewServeMux()
-	mux.HandleFunc("/.well-known/jwks.json", func(response http.ResponseWriter, request *http.Request) {
+	jwksHandler := func(response http.ResponseWriter, request *http.Request) {
 		lock.Lock()
 		defer lock.Unlock()
 		test.Counts[jwksCalls]++
@@ -1843,7 +1879,11 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 			}
 		}
 		fmt.Fprintln(response, string(payload)) //nolint:errcheck
-	})
+	}
+	if jwksPath, present := test.Actions[customJWKSEndpoint]; present && strings.HasPrefix(jwksPath, "/") {
+		mux.HandleFunc(jwksPath, jwksHandler)
+	}
+	mux.HandleFunc("/.well-known/jwks.json", jwksHandler)
 	mux.HandleFunc("/.well-known/openid-configuration", func(response http.ResponseWriter, request *http.Request) {
 		if _, ok := test.Actions[configBadBody]; ok {
 			response.Header().Add("Content-Length", "1")
@@ -1879,6 +1919,15 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 
 	if _, present := test.Actions[noAddIsser]; !present {
 		config.Issuers = append(config.Issuers, server.URL)
+	} else if jwksPath, present := test.Actions[customJWKSEndpoint]; present {
+		var entry map[string]any
+		switch jwksPath {
+		case noIssuerKey:
+			entry = map[string]any{"jwks": server.URL + "/v1/jwks"}
+		default:
+			entry = map[string]any{"issuer": server.URL, "jwks": server.URL + jwksPath}
+		}
+		config.Issuers = append(config.Issuers, entry)
 	}
 
 	if test.ClaimsMap["iss"] == nil && test.Actions[excludeIss] == "" {
@@ -2096,6 +2145,91 @@ func convertKeyToJWKWithKID(key any, algorithm string) (jose.JSONWebKey, string)
 	}
 	jwk.KeyID = base64.RawURLEncoding.EncodeToString(bytes)
 	return jwk, jwk.KeyID
+}
+
+func TestParseIssuers(tester *testing.T) {
+	tests := []struct {
+		Name              string
+		raw               []any
+		expectedIssuers   []string
+		expectedEndpoints map[string]string
+		expectedError     string
+	}{
+		{
+			Name:              "plain strings",
+			raw:               []any{"https://example.com", "https://other.com/"},
+			expectedIssuers:   []string{"https://example.com/", "https://other.com/"},
+			expectedEndpoints: map[string]string{},
+		},
+		{
+			Name: "map entry with issuer and jwks",
+			raw: []any{map[string]any{
+				"issuer": "https://firebaseappcheck.googleapis.com/123456",
+				"jwks":   "https://firebaseappcheck.googleapis.com/v1/jwks",
+			}},
+			expectedIssuers:   []string{"https://firebaseappcheck.googleapis.com/123456/"},
+			expectedEndpoints: map[string]string{"https://firebaseappcheck.googleapis.com/123456/": "https://firebaseappcheck.googleapis.com/v1/jwks"},
+		},
+		{
+			Name: "map entry with issuer only (no jwks)",
+			raw: []any{map[string]any{
+				"issuer": "https://example.com",
+			}},
+			expectedIssuers:   []string{"https://example.com/"},
+			expectedEndpoints: map[string]string{},
+		},
+		{
+			Name: "mixed plain string and map entry",
+			raw: []any{
+				"https://standard.example.com",
+				map[string]any{
+					"issuer": "https://custom.example.com",
+					"jwks":   "https://custom.example.com/v1/jwks",
+				},
+			},
+			expectedIssuers:   []string{"https://standard.example.com/", "https://custom.example.com/"},
+			expectedEndpoints: map[string]string{"https://custom.example.com/": "https://custom.example.com/v1/jwks"},
+		},
+		{
+			Name:              "empty list",
+			raw:               []any{},
+			expectedIssuers:   []string{},
+			expectedEndpoints: map[string]string{},
+		},
+		{
+			Name: "map entry with empty issuer is a config error",
+			raw: []any{map[string]any{
+				"issuer": "",
+				"jwks":   "https://example.com/jwks",
+			}},
+			expectedError: `issuer map entry is missing a valid "issuer" key`,
+		},
+		{
+			Name:          "map entry with missing issuer key is a config error",
+			raw:           []any{map[string]any{"jwks": "https://example.com/jwks"}},
+			expectedError: `issuer map entry is missing a valid "issuer" key`,
+		},
+	}
+	for _, test := range tests {
+		tester.Run(test.Name, func(tester *testing.T) {
+			issuers, endpoints, err := parseIssuers(test.raw)
+			if test.expectedError != "" {
+				if err == nil || err.Error() != test.expectedError {
+					tester.Errorf("expected error %q, got: %v", test.expectedError, err)
+				}
+				return
+			}
+			if err != nil {
+				tester.Fatalf("unexpected error: %v", err)
+			}
+			if !reflect.DeepEqual(issuers, test.expectedIssuers) {
+				tester.Errorf("issuers: got %v expected %v", issuers, test.expectedIssuers)
+			}
+			if !reflect.DeepEqual(endpoints, test.expectedEndpoints) {
+				tester.Errorf("endpoints: got %v expected %v", endpoints, test.expectedEndpoints)
+			}
+		})
+	}
 }
 
 func TestCanonicalizeDomains(tester *testing.T) {

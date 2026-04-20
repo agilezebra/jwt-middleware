@@ -26,7 +26,7 @@ import (
 // Config is the configuration for the plugin.
 type Config struct {
 	ValidMethods           []string          `json:"validMethods,omitempty"`
-	Issuers                []string          `json:"issuers,omitempty"`
+	Issuers                []any             `json:"issuers,omitempty"`
 	SkipPrefetch           bool              `json:"skipPrefetch,omitempty"`
 	DelayPrefetch          string            `json:"delayPrefetch,omitempty"`
 	RefreshKeysInterval    string            `json:"refreshKeysInterval,omitempty"`
@@ -60,6 +60,7 @@ type JWTPlugin struct {
 	parser                 *jwt.Parser               // A JWT parser instance, which we use for all token parsing
 	secret                 any                       // A single anonymous fixed public key or HMAC secret, or nil
 	issuers                []string                  // A list of valid issuers that we trust to fetch keys from
+	issuerJWKSEndpoints    map[string]string         // A map of issuer URLs to hard-coded JWKS endpoints (for non-standard issuers)
 	clients                map[string]*http.Client   // A map of clients for specific issuers that skip certificate verification
 	defaultClient          *http.Client              // A default client for fetching keys with certificate verification, optionally with custom root CAs
 	require                Requirement               // A map of requirements for each claim (which we treat simply as a Requirement to be validated)
@@ -157,12 +158,18 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		config.RootCAs[index] = pem
 	}
 
+	issuers, issuerJWKSEndpoints, err := parseIssuers(config.Issuers)
+	if err != nil {
+		return nil, err
+	}
+
 	plugin := JWTPlugin{
 		next:                   next,
 		name:                   name,
 		parser:                 jwt.NewParser(jwt.WithValidMethods(config.ValidMethods), jwt.WithJSONNumber()),
 		secret:                 key,
-		issuers:                canonicalizeDomains(config.Issuers),
+		issuers:                issuers,
+		issuerJWKSEndpoints:    issuerJWKSEndpoints,
 		clients:                NewClients(config.InsecureSkipVerify),
 		defaultClient:          NewDefaultClient(config.RootCAs, true),
 		require:                NewRequirement(config.Require, "$and"),
@@ -482,19 +489,21 @@ func (plugin *JWTPlugin) fetchAllKeys() {
 	}
 }
 
-// fetchKeys fetches the keys from well-known jwks endpoint for the given issuer and adds them to the key map.
+// fetchKeys fetches the keys from the well-known or custom jwks endpoint for the given issuer and adds them to the key map.
 func (plugin *JWTPlugin) fetchKeys(issuer string) error {
-	configURL := issuer + ".well-known/openid-configuration" // issuer has trailing slash
-	config, err := FetchOpenIDConfiguration(configURL, plugin.clientForURL(configURL))
+	url, ok := plugin.issuerJWKSEndpoints[issuer]
+	if !ok {
+		configURL := issuer + ".well-known/openid-configuration" // issuer has trailing slash
+		config, err := FetchOpenIDConfiguration(configURL, plugin.clientForURL(configURL))
 
-	var url string
-	if err != nil {
-		// Fall back to direct JWKS URL if OpenID configuration fetch fails
-		url = issuer + ".well-known/jwks.json"
-		logger.Log("WARN", "failed to fetch openid-configuration from url:%s; falling back to direct JWKS URL:%s", configURL, url)
-	} else {
-		logger.Log("INFO", "fetched openid-configuration from url:%s", configURL)
-		url = config.JWKSURI
+		if err != nil {
+			// Fall back to direct JWKS URL if OpenID configuration fetch fails
+			url = issuer + ".well-known/jwks.json"
+			logger.Log("WARN", "failed to fetch openid-configuration from url:%s; falling back to direct JWKS URL:%s", configURL, url)
+		} else {
+			logger.Log("INFO", "fetched openid-configuration from url:%s", configURL)
+			url = config.JWKSURI
+		}
 	}
 
 	jwks, err := FetchJWKS(url, plugin.clientForURL(url))
@@ -534,6 +543,30 @@ func (plugin *JWTPlugin) purgeKeys() {
 			delete(plugin.keys, keyID)
 		}
 	}
+}
+
+// parseIssuers splits a mixed []any issuers list into a flat []string of canonicalized issuer names
+// and a map of issuer name -> hard-coded JWKS endpoint for entries that specify one.
+func parseIssuers(raw []any) ([]string, map[string]string, error) {
+	issuers := make([]string, 0, len(raw))
+	endpoints := make(map[string]string)
+	for _, entry := range raw {
+		switch value := entry.(type) {
+		case string:
+			issuers = append(issuers, canonicalizeDomain(value))
+		case map[string]any:
+			issuer, ok := value["issuer"].(string)
+			if !ok || issuer == "" {
+				return nil, nil, fmt.Errorf("issuer map entry is missing a valid \"issuer\" key")
+			}
+			issuer = canonicalizeDomain(issuer)
+			issuers = append(issuers, issuer)
+			if jwks, ok := value["jwks"].(string); ok && jwks != "" {
+				endpoints[issuer] = jwks
+			}
+		}
+	}
+	return issuers, endpoints, nil
 }
 
 // canonicalizeDomain adds a trailing slash to the domain
