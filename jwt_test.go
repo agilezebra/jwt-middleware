@@ -34,7 +34,8 @@ type Test struct {
 	Allowed               bool               // Whether the request was actually allowed through by the plugin (set by next)
 	Expect                int                // Response status code expected
 	ExpectCounts          map[string]int     // Map of expected counts
-	ExpectPluginError     string             // If set, expect this error message from plugin
+	ExpectError           string             // If set, expect this error response from a request
+	ExpectPluginError     string             // If set, expect this error message from plugin on initialization
 	ExpectRedirect        string             // Full URL to expect redirection to
 	ExpectHeaders         map[string]string  // Headers to expect in the downstream request as passed to next
 	ExpectCookies         map[string]string  // Cookies to expect in the downstream request as passed to next
@@ -76,6 +77,7 @@ const (
 	traefikURL         = "traefikURL"
 	customJWKSEndpoint = "customJWKSEndpoint"
 	noIssuerKey        = "noIssuerKey"
+	algorithmConfusion = "algorithmConfusion"
 	yes                = "yes"
 	invalid            = "invalid/dummy"
 )
@@ -1657,6 +1659,30 @@ func TestServeHTTP(tester *testing.T) {
 			Method:     jwt.SigningMethodHS256,
 			CookieName: "Authorization",
 		},
+		{
+			Name:        "algorithm confusion with RSA public key",
+			Expect:      http.StatusUnauthorized,
+			ExpectError: "token signature is invalid: key is of invalid type: HMAC verify expects []byte",
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+			Actions:    map[string]string{useFixedSecret: yes, noAddIsser: yes, algorithmConfusion: "RSA"},
+		},
+		{
+			Name:        "algorithm confusion with EC public key",
+			Expect:      http.StatusUnauthorized,
+			ExpectError: "token signature is invalid: key is of invalid type: HMAC verify expects []byte",
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+			Actions:    map[string]string{useFixedSecret: yes, noAddIsser: yes, algorithmConfusion: "EC"},
+		},
 	}
 
 	for _, test := range tests {
@@ -1686,6 +1712,10 @@ func TestServeHTTP(tester *testing.T) {
 			// Check expectations
 			if response.Code != test.Expect {
 				tester.Fatalf("incorrect result code: got:%d expected:%d body: %s", response.Code, test.Expect, response.Body.String())
+			}
+
+			if test.ExpectError != "" && strings.TrimSpace(response.Body.String()) != test.ExpectError {
+				tester.Fatalf("expected error containing %q but got %q", test.ExpectError, response.Body.String())
 			}
 
 			expectAllow := !expectDisallow(&test)
@@ -2028,17 +2058,57 @@ func createTokenAndSaveKey(test *Test, config *Config) string {
 	var err error
 	switch method {
 	case jwt.SigningMethodHS256, jwt.SigningMethodHS384, jwt.SigningMethodHS512:
-		// HMAC - use the provided key from the config Secret.
-		if test.Secret == "" {
-			panic(fmt.Errorf("Secret is required for %s", method.Alg()))
-		}
-		if config.SecretBase64Encoded {
-			private, err = base64.URLEncoding.DecodeString(test.Secret)
-			if err != nil {
-				panic(err)
+		if confusionType, ok := test.Actions[algorithmConfusion]; ok {
+			// Algorithm confusion attack: generate asymmetric key pair, set public key as fixed secret,
+			// but sign with the public key bytes as HMAC secret
+			switch confusionType {
+			case "RSA":
+				// Generate RSA key pair
+				secret, err := rsa.GenerateKey(rand.Reader, 2048)
+				if err != nil {
+					panic(err)
+				}
+				public = &secret.PublicKey
+				publicPEM = string(pem.EncodeToMemory(&pem.Block{
+					Type:  "RSA PUBLIC KEY",
+					Bytes: x509.MarshalPKCS1PublicKey(&secret.PublicKey),
+				}))
+				// Sign with the public key bytes as HMAC secret (the attack)
+				private = []byte(publicPEM)
+			case "EC":
+				// Generate EC key pair
+				curve := elliptic.P256()
+				secret, err := ecdsa.GenerateKey(curve, rand.Reader)
+				if err != nil {
+					panic(err)
+				}
+				public = &secret.PublicKey
+				der, err := x509.MarshalPKIXPublicKey(&secret.PublicKey)
+				if err != nil {
+					panic(err)
+				}
+				publicPEM = string(pem.EncodeToMemory(&pem.Block{
+					Type:  "PUBLIC KEY",
+					Bytes: der,
+				}))
+				// Sign with the public key bytes as HMAC secret (the attack)
+				private = []byte(publicPEM)
+			default:
+				panic(fmt.Errorf("unsupported algorithm confusion type: %s", confusionType))
 			}
 		} else {
-			private = []byte(test.Secret)
+			// Normal HMAC - use the provided key from the config Secret
+			if test.Secret == "" {
+				panic(fmt.Errorf("Secret is required for %s", method.Alg()))
+			}
+			if config.SecretBase64Encoded {
+				private, err = base64.URLEncoding.DecodeString(test.Secret)
+				if err != nil {
+					panic(err)
+				}
+			} else {
+				private = []byte(test.Secret)
+			}
 		}
 	case jwt.SigningMethodRS256, jwt.SigningMethodRS384, jwt.SigningMethodRS512:
 		// RSA
