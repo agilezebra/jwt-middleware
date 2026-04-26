@@ -107,6 +107,7 @@ Name | Description
 `unauthenticatedMethods` | A list of HTTP methods that should be allowed to pass without requiring authentication. Default: empty, meaning no methods are exempt. If specified, any requests with a method in this list will not require a valid token. Methods are matched case-insensitively.
 `insecureSkipVerify` | A list of issuers' domains for which TLS certificates should not be verified (i.e. use `InsecureSkipVerify: true`). Only the hostname/domain should be specified (i.e. no scheme or trailing slash). Applies to both the openid-configuration and jwks calls.
 `rootCAs` | One or more additional root certificate authorities, each expressed either inline in PEM format, or as a path to a file, to be combined with the system cert pool when verifying server certificates.
+`validMethods` | A list of signing algorithms that the plugin will accept. Default: `["RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "HS256", "HS384", "HS512"]`. This option can be used to explicitly disable undesirable algorithms, such as removing all HMAC algorithms (`HS256`, `HS384`, `HS512`) when only asymmetric signatures should be accepted from trusted issuers. See [Algorithm Confusion Protection](#algorithm-confusion-protection) below for security considerations.
 
 ### Template Interpolation
 
@@ -239,7 +240,40 @@ Note that mixing yaml array styles here is arbitrary and both are used to enhanc
 }
 ```
 
+### Algorithm Confusion Protection
+
+The plugin is protected against [JWT Algorithm Confusion attacks](https://medium.com/@instatunnel/jwt-algorithm-confusion-turning-rs256-tokens-into-hs256-disasters-db1923774873), where an attacker attempts to use an asymmetric public key (RSA/EC) as a symmetric HMAC secret. The protection is inherent in how the plugin stores and uses keys:
+
+1. **Strongly Typed Keys**: When a public key is configured (via `secrets` or fetched from an issuer's JWKS), it is parsed into its appropriate Go type (`*rsa.PublicKey` or `*ecdsa.PublicKey`), not stored as raw bytes.
+
+2. **Type-Safe Verification**: When the JWT library verifies a token signature, it receives the key in its typed form. If a token specifies `alg: HS256` (HMAC) but the key retrieved is an RSA public key, the JWT library will reject it with `key is of invalid type: HMAC verify expects []byte` because it cannot use an RSA key structure as an HMAC secret.
+
+#### Using `validMethods` for Additional Protection
+
+While the plugin is inherently protected against algorithm confusion due to strong typing, you can use the `validMethods` configuration option to explicitly limit which algorithms are acceptable. This is a defense-in-depth measure that is particularly useful when:
+
+* You only use RSA or EC signatures from trusted issuers and want to reject all HMAC tokens
+* You want to ensure only specific algorithms (e.g., only `ES384`) are used
+
 ### Examples
+
+#### Only accept RSA signatures from issuers (rejecting all HMAC tokens etc):
+
+```yaml
+http:
+  middlewares:
+    secure-api:
+      plugin:
+        jwt:
+          issuers:
+            - https://auth.example.com
+          validMethods:
+            - RS256
+            - RS384
+            - RS512
+          require:
+            aud: test.example.com
+```
 
 #### Interactive webserver with redirection to login and error pages
 
