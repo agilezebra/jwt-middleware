@@ -21,7 +21,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/agilezebra/jwt-middleware
-      version: v1.4.0
+      version: v1.4.1
 ```
 
 1b. or with command-line options:
@@ -30,7 +30,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/agilezebra/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.4.0"
+  - "--experimental.plugins.jwt.version=v1.4.1"
 ```
 
 2. Configure and activate the plugin as a middleware in your dynamic traefik config:
