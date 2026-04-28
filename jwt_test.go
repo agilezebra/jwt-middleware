@@ -354,7 +354,7 @@ func TestServeHTTP(tester *testing.T) {
 		},
 		{
 			Name:   "bad template requirement",
-			Expect: http.StatusForbidden, // TODO add check on startup
+			Expect: http.StatusForbidden,
 			Config: `
 				secret: fixed secret
 				require:
