@@ -398,10 +398,15 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (any, error) {
 	if len(plugin.issuers) > 0 || len(plugin.keys) > 0 {
 		kid, ok := token.Header["kid"]
 		if ok {
+			kidString, ok := kid.(string)
+			if !ok {
+				return nil, fmt.Errorf("invalid kid: expected string, got %T", kid)
+			}
+
 			refreshed := ""
 			for looped := false; ; looped = true {
 				plugin.lock.RLock()
-				key, ok := plugin.keys[kid.(string)]
+				key, ok := plugin.keys[kidString]
 				plugin.lock.RUnlock()
 				if ok {
 					return key, nil
@@ -409,7 +414,7 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (any, error) {
 
 				if looped {
 					if refreshed != "" {
-						logger.Log("WARN", "key %s: refreshed keys from %s and still no match", kid, refreshed)
+						logger.Log("WARN", "key %s: refreshed keys from %s and still no match", kidString, refreshed)
 					}
 					break
 				}
