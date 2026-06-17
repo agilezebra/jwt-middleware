@@ -2544,3 +2544,24 @@ func TestHasToken(tester *testing.T) {
 		}
 	}
 }
+
+func TestGetKey(tester *testing.T) {
+	plugin := &JWTPlugin{
+		keys: map[string]any{"some-kid": "some-key"},
+	}
+	token := &jwt.Token{
+		Header: map[string]any{"kid": 12345},
+		Claims: jwt.MapClaims{},
+	}
+
+	key, err := plugin.getKey(token)
+	if key != nil {
+		tester.Errorf("getKey() key = %v; expect nil", key)
+	}
+	if err == nil {
+		tester.Fatal("getKey() err = nil; expect error")
+	}
+	if expect := "invalid kid: expected string, got int"; err.Error() != expect {
+		tester.Errorf("getKey() err = %q; expect %q", err.Error(), expect)
+	}
+}
