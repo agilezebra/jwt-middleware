@@ -2565,3 +2565,39 @@ func TestGetKey(tester *testing.T) {
 		tester.Errorf("getKey() err = %q; expect %q", err.Error(), expect)
 	}
 }
+
+// TestIsValidIssuerWildcard verifies that a wildcard issuer is matched per URL
+// path segment: '*' must not cross '/', so a foreign host cannot spoof a trusted
+// issuer by embedding it in the URL path.
+func TestIsValidIssuerWildcard(tester *testing.T) {
+	raw := []any{
+		"https://auth.other.org/path/main", // exact issuer, distinct domain
+		"https://*.example.com/path/*",     // multitenancy wildcard
+	}
+	issuers, _, err := parseIssuers(raw)
+	if err != nil {
+		tester.Fatalf("parseIssuers: %v", err)
+	}
+	plugin := &JWTPlugin{issuers: issuers}
+
+	// iss claim -> expected validity
+	cases := map[string]bool{
+		"https://auth.other.org/path/main":              true,
+		"https://auth.other.org/path/other":             false,
+		"https://tenant1.example.com/path/foo":          true,
+		"https://a.b.example.com/path/foo":              true,
+		"https://evil.com/path/foo":                     false,
+		"https://example.com/path/foo":                  false,
+		"https://tenant1.example.com.evil.com/path/foo": false,
+		// '*' must not cross '/': foreign host embedding the trusted string in its path.
+		"https://evil.com/x.example.com/path/y": false,
+		"https://tenant1.example.com/path/a/b":  false,
+	}
+
+	for iss, want := range cases {
+		got := plugin.isValidIssuer(canonicalizeDomain(iss))
+		if got != want {
+			tester.Errorf("isValidIssuer(%q) = %v, want %v", iss, got, want)
+		}
+	}
+}

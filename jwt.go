@@ -455,7 +455,10 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (any, error) {
 // isValidIssuer returns true if the issuer is allowed by the Issers configuration.
 func (plugin *JWTPlugin) isValidIssuer(issuer string) bool {
 	for _, allowed := range plugin.issuers {
-		if fnmatch.Match(allowed, issuer, 0) {
+		// FNM_PATHNAME keeps '*' from crossing '/', so a wildcard issuer cannot be
+		// spoofed by a foreign host embedding the trusted string in its URL path
+		// (e.g. https://evil.com/x.example.com/realms/y).
+		if fnmatch.Match(allowed, issuer, fnmatch.FNM_PATHNAME) {
 			return true
 		}
 	}
