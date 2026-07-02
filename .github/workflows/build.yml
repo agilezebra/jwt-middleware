@@ -35,6 +35,7 @@ jobs:
         run: go test ./... -v -coverprofile=coverage.out -json > report.json
 
       - name: Sonar Scan
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4 # v7.1.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

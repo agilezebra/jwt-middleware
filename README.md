@@ -1,8 +1,8 @@
+# Dynamic JWT Validation Middleware
+
 [![Build](https://github.com/agilezebra/jwt-middleware/actions/workflows/build.yml/badge.svg)](https://github.com/agilezebra/jwt-middleware/actions/workflows/build.yml)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=agilezebra_jwt-middleware&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=agilezebra_jwt-middleware)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=agilezebra_jwt-middleware&metric=coverage)](https://sonarcloud.io/summary/new_code?id=agilezebra_jwt-middleware)
-
-# Dynamic JWT Validation Middleware
 
 This is a middleware plugin for [Traefik](https://github.com/containous/traefik) with the following features:
 
@@ -15,6 +15,7 @@ This is a middleware plugin for [Traefik](https://github.com/containous/traefik)
 ## Configuration
 
 ### Add
+
 1a. Add the plugin to traefik, either in your static traefik config file:
 
 ```yaml
@@ -22,7 +23,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/agilezebra/jwt-middleware
-      version: v1.4.3
+      version: v1.4.5
 ```
 
 1b. or with command-line options:
@@ -31,7 +32,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/agilezebra/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.4.3"
+  - "--experimental.plugins.jwt.version=v1.4.5"
 ```
 
 ### Configure
@@ -140,7 +141,7 @@ Name | Description
 The following per-request variables and functions are available for Go template interpolation:
 
 Name | Description
-----|----
+---- | ----
 `{{.URL}}` | Full request URL including scheme and any query string parameters.
 `{{.Method}}` | HTTP method of request (uppercase).
 `{{.Scheme}}` | https or http.
@@ -283,7 +284,7 @@ While the plugin is inherently protected against algorithm confusion due to stro
 
 ### Examples
 
-#### Only accept RSA signatures from issuers (rejecting all HMAC tokens etc):
+#### Only accept RSA signatures from issuers (rejecting all HMAC tokens etc)
 
 ```yaml
 http:
