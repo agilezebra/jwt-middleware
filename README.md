@@ -23,7 +23,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/agilezebra/jwt-middleware
-      version: v1.4.5
+      version: v1.4.6
 ```
 
 1b. or with command-line options:
@@ -32,7 +32,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/agilezebra/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.4.5"
+  - "--experimental.plugins.jwt.version=v1.4.6"
 ```
 
 ### Configure
