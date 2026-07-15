@@ -117,6 +117,306 @@ func TestKeyCacheSurvivesRebuild(tester *testing.T) {
 	}
 }
 
+// TestRefreshSurvivesRebuilds verifies that background key refresh runs once per issuer store
+// no matter how many times traefik rebuilds the middleware: without this, every rebuild
+// leaks an immortal refresh goroutine and the fetch rate against the issuer grows without bound.
+func TestRefreshSurvivesRebuilds(tester *testing.T) {
+	_, keys, _ := signingKey(tester)
+	var fetches atomic.Int64
+	server := countingServer(keys, &fetches)
+	defer server.Close()
+
+	configText := fmt.Sprintf(`
+		issuers:
+			- %s
+		skipPrefetch: true
+		refreshKeysInterval: 50ms`, server.URL)
+
+	for range 5 {
+		buildPlugin(tester, configText)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if count := fetches.Load(); count > 15 {
+		tester.Fatalf("fetch rate implies duplicated refresh loops: %d fetches in 500ms at a 50ms interval", count)
+	}
+}
+
+// storeFor returns the existing shared store for the given issuer without registering with it.
+func storeFor(tester *testing.T, issuer string) *Store {
+	keystore.lock.RLock()
+	defer keystore.lock.RUnlock()
+	store, ok := keystore.stores[canonicalizeDomain(issuer)]
+	if !ok {
+		tester.Fatalf("no store for issuer %s", issuer)
+	}
+	return store
+}
+
+// refreshing returns whether the store is being arbitrarily refreshed
+// (refreshing is scheduled while the store's interval is nonzero).
+func refreshing(store *Store) bool {
+	store.lock.RLock()
+	defer store.lock.RUnlock()
+	return store.interval > 0
+}
+
+// due returns when the store's next arbitrary refresh is due.
+func due(store *Store) time.Time {
+	store.lock.RLock()
+	defer store.lock.RUnlock()
+	return store.deadline
+}
+
+// TestShortestRefreshIntervalWins verifies that a store shared by middlewares with different
+// refreshKeysInterval values adopts the shortest, including when the shorter interval arrives
+// while a refresh is already scheduled at a longer cadence.
+func TestShortestRefreshIntervalWins(tester *testing.T) {
+	_, keys, _ := signingKey(tester)
+	var fetches atomic.Int64
+	server := countingServer(keys, &fetches)
+	defer server.Close()
+
+	// The long cadence is 1s: it must never fire within the observation window below,
+	// but be short enough for this test to outlive its superseded sleeper (see below)
+	buildPlugin(tester, fmt.Sprintf(`
+		issuers:
+			- %s
+		skipPrefetch: true
+		refreshKeysInterval: 1s`, server.URL))
+	buildPlugin(tester, fmt.Sprintf(`
+		issuers:
+			- %s
+		skipPrefetch: true
+		refreshKeysInterval: 50ms`, server.URL))
+
+	time.Sleep(500 * time.Millisecond)
+	if count := fetches.Load(); count < 3 {
+		tester.Fatalf("later registrant's shorter interval did not take effect: %d fetches in 500ms at a 50ms interval", count)
+	}
+
+	// Outlive the long cadence's superseded sleeper, which wakes at its original deadline (~1s)
+	// and must exit without fetching or re-arming; doing so here (rather than relying on later
+	// tests to keep the process alive) guarantees it however the suite is composed or filtered
+	time.Sleep(700 * time.Millisecond)
+
+	// Had the superseded sleeper wrongly re-armed, it would have spawned a second chain alongside
+	// the original, and the fetch rate would now be roughly double the 50ms cadence
+	count := fetches.Load()
+	time.Sleep(500 * time.Millisecond)
+	if delta := fetches.Load() - count; delta > 15 {
+		tester.Fatalf("fetch rate implies the superseded sleeper spawned a second chain: %d fetches in 500ms at a 50ms interval", delta)
+	}
+}
+
+// TestRefreshRetiresAndResurrects verifies that a store's scheduled refresh retires once the
+// middleware set has been rebuilt without it (its issuer has left the dynamic configuration) and
+// resumes when a later configuration references the issuer again.
+func TestRefreshRetiresAndResurrects(tester *testing.T) {
+	_, keys, _ := signingKey(tester)
+	var fetches atomic.Int64
+	server := countingServer(keys, &fetches)
+	defer server.Close()
+
+	_, otherKeys, _ := signingKey(tester)
+	var otherFetches atomic.Int64
+	other := countingServer(otherKeys, &otherFetches)
+	defer other.Close()
+
+	configText := fmt.Sprintf(`
+		issuers:
+			- %s
+		skipPrefetch: true
+		refreshKeysInterval: 50ms`, server.URL)
+	buildPlugin(tester, configText)
+
+	// Simulate "the middleware set was rebuilt without me": age the store's own registration
+	// beyond the grace, then register a different issuer to advance the keystore's registration
+	store := storeFor(tester, server.URL)
+	store.lock.Lock()
+	store.registered = time.Now().Add(-2 * retirementGrace)
+	store.lock.Unlock()
+	buildPlugin(tester, fmt.Sprintf(`
+		issuers:
+			- %s
+		skipPrefetch: true`, other.URL))
+
+	deadline := time.Now().Add(5 * time.Second)
+	for refreshing(store) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if refreshing(store) {
+		tester.Fatal("refresh did not retire after the middleware set was rebuilt without its store")
+	}
+	count := fetches.Load()
+	time.Sleep(300 * time.Millisecond)
+	if grown := fetches.Load(); grown != count {
+		tester.Fatalf("fetches continued after retirement: %d -> %d", count, grown)
+	}
+
+	// A rebuild that references the issuer again resurrects the loop
+	buildPlugin(tester, configText)
+	deadline = time.Now().Add(5 * time.Second)
+	for fetches.Load() == count && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if fetches.Load() == count {
+		tester.Fatal("refresh did not resume after the issuer was registered again")
+	}
+}
+
+// TestQuietClusterNeverRetires verifies that retirement is driven by rebuilds, not by time:
+// with no registrations happening anywhere, a store keeps refreshing indefinitely,
+// however long ago the store was last registered.
+func TestQuietClusterNeverRetires(tester *testing.T) {
+	_, keys, _ := signingKey(tester)
+	var fetches atomic.Int64
+	server := countingServer(keys, &fetches)
+	defer server.Close()
+
+	buildPlugin(tester, fmt.Sprintf(`
+		issuers:
+			- %s
+		skipPrefetch: true
+		refreshKeysInterval: 50ms`, server.URL))
+
+	// Move both registration timestamps equally far into the past: on a quiet cluster the two
+	// stay equal however much time passes, and equal timestamps must never trigger retirement
+	store := storeFor(tester, server.URL)
+	past := time.Now().Add(-10 * retirementGrace)
+	store.lock.Lock()
+	store.registered = past
+	store.lock.Unlock()
+	keystore.lock.Lock()
+	keystore.registered = past
+	keystore.lock.Unlock()
+
+	count := fetches.Load()
+	time.Sleep(500 * time.Millisecond)
+	if !refreshing(store) {
+		tester.Fatal("refresh retired on a quiet cluster")
+	}
+	if fetches.Load() <= count {
+		tester.Fatal("refresh stopped fetching on a quiet cluster")
+	}
+}
+
+// TestTrafficDoesNotRetirePeers verifies that request-time lookups are not mistaken for
+// configuration rebuilds: only a middleware (re)registering its issuers advances the keystore's
+// rebuild timestamp, so sustained traffic for one issuer can never age another, quieter issuer
+// towards retirement — while still keeping the trafficked store itself registered.
+func TestTrafficDoesNotRetirePeers(tester *testing.T) {
+	private, keys, kid := signingKey(tester)
+	var fetches atomic.Int64
+	server := countingServer(keys, &fetches)
+	defer server.Close()
+	token := signToken(tester, private, kid, server.URL)
+
+	plugin := buildPlugin(tester, fmt.Sprintf(`
+		issuers:
+			- %s
+		skipPrefetch: true`, server.URL))
+	store := storeFor(tester, server.URL)
+
+	keystore.lock.RLock()
+	rebuilt := keystore.registered
+	keystore.lock.RUnlock()
+	store.lock.RLock()
+	registered := store.registered
+	store.lock.RUnlock()
+
+	// Ensure the clock advances past the registration timestamp whatever its granularity
+	time.Sleep(10 * time.Millisecond)
+	if code := sendRequest(tester, plugin, token); code != http.StatusOK {
+		tester.Fatalf("expected %d, got %d", http.StatusOK, code)
+	}
+
+	keystore.lock.RLock()
+	advanced := keystore.registered
+	keystore.lock.RUnlock()
+	if !advanced.Equal(rebuilt) {
+		tester.Fatal("request traffic advanced the keystore's rebuild timestamp: traffic for one issuer could retire another")
+	}
+	store.lock.RLock()
+	touched := store.registered
+	store.lock.RUnlock()
+	if !touched.After(registered) {
+		tester.Fatal("request traffic did not keep the trafficked store registered")
+	}
+}
+
+// TestFetchPostponesScheduledRefresh verifies that any fetch restarts the full refresh interval:
+// refreshing means "fetch if not fetched within the interval", not a fixed metronome, so when the
+// scheduled refresh comes due after an intervening fetch it re-arms for the remainder rather than
+// fetching again.
+func TestFetchPostponesScheduledRefresh(tester *testing.T) {
+	_, keys, _ := signingKey(tester)
+	var fetches atomic.Int64
+	server := countingServer(keys, &fetches)
+	defer server.Close()
+
+	buildPlugin(tester, fmt.Sprintf(`
+		issuers:
+			- %s
+		skipPrefetch: true
+		refreshKeysInterval: 500ms`, server.URL))
+
+	store := storeFor(tester, server.URL)
+	before := due(store)
+	time.Sleep(400 * time.Millisecond)
+	if err := store.fetch(); err != nil {
+		tester.Fatal(err)
+	}
+
+	// When the original deadline expires, the scheduled refresh re-arms rather than fetches
+	deadline := time.Now().Add(5 * time.Second)
+	for !due(store).After(before) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !due(store).After(before) {
+		tester.Fatal("the scheduled refresh was not postponed by the fetch")
+	}
+	if count := fetches.Load(); count != 1 {
+		tester.Fatalf("the scheduled refresh fetched despite the intervening fetch: %d fetches", count)
+	}
+
+	// And refreshing continues from the postponed deadline
+	for fetches.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if count := fetches.Load(); count < 2 {
+		tester.Fatalf("scheduled refreshing did not continue after being postponed: %d fetches", count)
+	}
+}
+
+// TestRefreshWaitsForPrefetchDelay verifies that a configured prefetch delay is honored even when
+// refreshKeysInterval is shorter: the delay exists to give an issuer behind the same traefik time
+// to come up, so no background fetch of any kind may hit it earlier, and the prefetch (not a
+// refresh tick) must be the first fetch.
+func TestRefreshWaitsForPrefetchDelay(tester *testing.T) {
+	_, keys, _ := signingKey(tester)
+	var fetches atomic.Int64
+	server := countingServer(keys, &fetches)
+	defer server.Close()
+
+	buildPlugin(tester, fmt.Sprintf(`
+		issuers:
+			- %s
+		delayPrefetch: 300ms
+		refreshKeysInterval: 50ms`, server.URL))
+
+	time.Sleep(150 * time.Millisecond)
+	if count := fetches.Load(); count != 0 {
+		tester.Fatalf("issuer was fetched %d times before the prefetch delay", count)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for fetches.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if fetches.Load() == 0 {
+		tester.Fatal("prefetch never happened after the delay")
+	}
+}
+
 // TestPrefetchSkipsWarmStores verifies that the prefetch performed on plugin creation is
 // skipped when an earlier instance has already fetched the issuer's keys, so that constant
 // middleware rebuilds do not translate into constant fetches from the issuer.
