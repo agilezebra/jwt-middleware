@@ -324,6 +324,8 @@ func TestTrafficDoesNotRetirePeers(tester *testing.T) {
 	registered := store.registered
 	store.lock.RUnlock()
 
+	// Ensure the clock advances past the registration timestamp whatever its granularity
+	time.Sleep(10 * time.Millisecond)
 	if code := sendRequest(tester, plugin, token); code != http.StatusOK {
 		tester.Fatalf("expected %d, got %d", http.StatusOK, code)
 	}
