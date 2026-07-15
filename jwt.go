@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/agilezebra/jwt-middleware/logger"
@@ -55,31 +54,29 @@ type CaseInsensitiveSet map[string]struct{}
 
 // JWTPlugin is a traefik middleware plugin that authorizes access based on JWT tokens.
 type JWTPlugin struct {
-	next                   http.Handler              // The next http.Handler in the chain
-	name                   string                    // The name of the plugin
-	parser                 *jwt.Parser               // A JWT parser instance, which we use for all token parsing
-	secret                 any                       // A single anonymous fixed public key or HMAC secret, or nil
-	issuers                []string                  // A list of valid issuers that we trust to fetch keys from
-	issuerJWKSEndpoints    map[string]string         // A map of issuer URLs to hard-coded JWKS endpoints (for non-standard issuers)
-	clients                map[string]*http.Client   // A map of clients for specific issuers that skip certificate verification
-	defaultClient          *http.Client              // A default client for fetching keys with certificate verification, optionally with custom root CAs
-	require                Requirement               // A map of requirements for each claim (which we treat simply as a Requirement to be validated)
-	lock                   sync.RWMutex              // Read-write lock for the keys and issuerKeys maps
-	keys                   map[string]any            // A map of key IDs to public keys or shared HMAC secrets
-	issuerKeys             map[string]map[string]any // A map of issuer URLs to key IDs to public keys, for reference counting / purging
-	optional               bool                      // If true, requests without a token are allowed but any token provided must still be valid
-	unauthenticatedMethods CaseInsensitiveSet        // A set of HTTP methods that bypass authentication entirely
-	redirectUnauthorized   *template.Template        // A template for redirecting unauthorized requests
-	redirectForbidden      *template.Template        // A template for redirecting forbidden requests
-	cookieName             string                    // The name of the cookie to extract the token from
-	headerName             string                    // The name of the header to extract the token from
-	parameterName          string                    // The name of the query parameter to extract the token from
-	headerMap              map[string]string         // A map of claim names to header names to forward to the backend
-	removeMissingHeaders   bool                      // If true, remove missing headers from the request
-	forwardToken           bool                      // If true, the token is forwarded to the backend
-	freshness              int64                     // The maximum age of a token in seconds
-	environment            map[string]string         // Map of environment variables
-	logUnauthorized        string                    // If set, log the details of the failed requirements to the level specified
+	next                   http.Handler            // The next http.Handler in the chain
+	name                   string                  // The name of the plugin
+	parser                 *jwt.Parser             // A JWT parser instance, which we use for all token parsing
+	secret                 any                     // A single anonymous fixed public key or HMAC secret, or nil
+	issuers                []string                // A list of valid issuers that we trust to fetch keys from
+	issuerJWKSEndpoints    map[string]string       // A map of issuer URLs to hard-coded JWKS endpoints (for non-standard issuers)
+	clients                map[string]*http.Client // A map of clients for specific issuers that skip certificate verification
+	defaultClient          *http.Client            // A default client for fetching keys with certificate verification, optionally with custom root CAs
+	require                Requirement             // A map of requirements for each claim (which we treat simply as a Requirement to be validated)
+	keys                   map[string]any          // A map of key IDs to fixed public keys or shared HMAC secrets from the configuration
+	optional               bool                    // If true, requests without a token are allowed but any token provided must still be valid
+	unauthenticatedMethods CaseInsensitiveSet      // A set of HTTP methods that bypass authentication entirely
+	redirectUnauthorized   *template.Template      // A template for redirecting unauthorized requests
+	redirectForbidden      *template.Template      // A template for redirecting forbidden requests
+	cookieName             string                  // The name of the cookie to extract the token from
+	headerName             string                  // The name of the header to extract the token from
+	parameterName          string                  // The name of the query parameter to extract the token from
+	headerMap              map[string]string       // A map of claim names to header names to forward to the backend
+	removeMissingHeaders   bool                    // If true, remove missing headers from the request
+	forwardToken           bool                    // If true, the token is forwarded to the backend
+	freshness              int64                   // The maximum age of a token in seconds
+	environment            map[string]string       // Map of environment variables
+	logUnauthorized        string                  // If set, log the details of the failed requirements to the level specified
 }
 
 // TemplateVariables are the per-request variables passed to Go templates for interpolation, such as the require and redirect templates.
@@ -173,8 +170,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		clients:                NewClients(config.InsecureSkipVerify),
 		defaultClient:          NewDefaultClient(config.RootCAs, true),
 		require:                NewRequirement(config.Require, "$and"),
-		keys:                   make(map[string]any),
-		issuerKeys:             make(map[string]map[string]any),
+		keys:                   make(map[string]any, len(config.Secrets)),
 		optional:               config.Optional,
 		unauthenticatedMethods: NewCaseInsensitiveSet(config.UnauthenticatedMethods),
 		redirectUnauthorized:   NewTemplate(config.RedirectUnauthorized),
@@ -190,7 +186,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		environment:            environment(),
 	}
 
-	// If we have keys/secrets, add them to the key cache
+	// If we have keys/secrets, add them to the plugin's fixed keys
 	for kid, raw := range config.Secrets {
 		key, err := setupKey(raw, config.SecretBase64Encoded)
 		if err != nil {
@@ -201,7 +197,6 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		}
 		plugin.keys[kid] = key
 	}
-	plugin.issuerKeys["internal"] = internalIssuerKeys(config.Secrets)
 
 	// Set up the prefetch and refresh intervals and the fetch routine
 	var delayPrefetch time.Duration
@@ -223,15 +218,6 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 	return &plugin, nil
 }
 
-// internalIssuerKeys returns a dummy keyset for the keys in config.Secrets
-func internalIssuerKeys(secrets map[string]string) map[string]any {
-	keys := make(map[string]any, len(secrets))
-	for kid := range secrets {
-		keys[kid] = nil
-	}
-	return keys
-}
-
 // parseDuration parses a duration string or returns 0 if the string is empty.
 func parseDuration(duration string) (time.Duration, error) {
 	if duration == "" {
@@ -245,13 +231,13 @@ func (plugin *JWTPlugin) fetchRoutine(delayPrefetch time.Duration, refreshKeysIn
 	// If we have an initial delay, which may be 0, wait for that before the first fetch
 	if delayPrefetch != -1 {
 		time.Sleep(delayPrefetch)
-		plugin.fetchAllKeys()
+		plugin.fetchAllKeys(true)
 	}
 	// If we have a refresh interval, loop forever fetching keys at that interval
 	if refreshKeysInterval != 0 {
 		for {
 			time.Sleep(refreshKeysInterval)
-			plugin.fetchAllKeys()
+			plugin.fetchAllKeys(false)
 		}
 	}
 }
@@ -391,8 +377,10 @@ func (plugin *JWTPlugin) removeMappedHeaders(request *http.Request) {
 	}
 }
 
-// getKey gets the key for the given key ID from the plugin's key cache.
-// If the key isn't present and the iss is valid according to the plugin's configuration, all keys for the iss are refreshed and the key is looked up again.
+// getKey gets the key for the given key ID.
+// It checks first the plugin's configured fixed keys and then the shared key store for the token's issuer
+// If the token has no issuer, it checks all trusted issuers for the key ID.
+// If the key isn't present and the token's iss is valid according to the plugin's configuration, all keys for the iss are fetched and the key is looked up again.
 func (plugin *JWTPlugin) getKey(token *jwt.Token) (any, error) {
 	err := fmt.Errorf("no secret configured")
 	if len(plugin.issuers) > 0 || len(plugin.keys) > 0 {
@@ -403,42 +391,39 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (any, error) {
 				return nil, fmt.Errorf("invalid kid: expected string, got %T", kid)
 			}
 
-			refreshed := ""
-			for looped := false; ; looped = true {
-				plugin.lock.RLock()
-				key, ok := plugin.keys[kidString]
-				plugin.lock.RUnlock()
-				if ok {
-					return key, nil
-				}
+			key, ok := plugin.keys[kidString]
+			if ok {
+				return key, nil
+			}
 
-				if looped {
-					if refreshed != "" {
-						logger.Log("WARN", "key %s: refreshed keys from %s and still no match", kidString, refreshed)
+			issuer, ok := token.Claims.(jwt.MapClaims)["iss"].(string)
+			if ok {
+				issuer = canonicalizeDomain(issuer)
+				if plugin.isValidIssuer(issuer) {
+					store := plugin.store(issuer)
+					key := store.key(kidString)
+					if key != nil {
+						return key, nil
 					}
-					break
-				}
 
-				issuer, ok := token.Claims.(jwt.MapClaims)["iss"].(string)
-				if ok {
-					issuer = canonicalizeDomain(issuer)
-					if plugin.isValidIssuer(issuer) {
-						// There is a design choice here: we have determined that the key is not present whilst holding the read lock.
-						// fetchKeys will fetch the metadata and key from the issuer before it aquires the write lock, as we don't want
-						// to block other requests that are able to immediately read available keys.
-						// This means that we may make multiple requests at the same time for the same kid, if it is newly presented concurrently.
-						// This is a tradeoff between the cost of the extra requests (more so to the server) vs the cost to other threads of holding the lock.
-						err = plugin.fetchKeys(issuer)
-						if err == nil {
-							refreshed = issuer
-						} else {
-							log.Printf("failed to fetch keys for %s: %v", issuer, err)
+					err = store.fetch()
+					if err == nil {
+						key = store.key(kidString)
+						if key != nil {
+							return key, nil
 						}
+						logger.Log("WARN", "key %s: refreshed keys from %s and still no match", kidString, issuer)
 					} else {
-						err = fmt.Errorf("issuer %s is not valid", issuer)
+						log.Printf("failed to fetch keys for %s: %v", issuer, err)
 					}
 				} else {
-					break
+					err = fmt.Errorf("issuer %s is not valid", issuer)
+				}
+			} else {
+				// Tokens without an iss claim can still match keys already fetched from any trusted issuer (e.g. by prefetch)
+				key := keystore.key(kidString, plugin.isValidIssuer)
+				if key != nil {
+					return key, nil
 				}
 			}
 		}
@@ -450,6 +435,12 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (any, error) {
 	}
 
 	return plugin.secret, nil
+}
+
+// store returns the shared key store for the given issuer, binding in the plugin's fetch
+// configuration for the case where the issuer is not yet registered in the keystore.
+func (plugin *JWTPlugin) store(issuer string) *Store {
+	return keystore.store(issuer, plugin.issuerJWKSEndpoints[issuer], plugin.clients, plugin.defaultClient)
 }
 
 // isValidIssuer returns true if the issuer is allowed by the Issers configuration.
@@ -475,80 +466,21 @@ func hostname(address string) string {
 	return parsed.Hostname()
 }
 
-// clientForURL returns the http.Client for the given URL, or the default client if no specific client is configured.
-func (plugin *JWTPlugin) clientForURL(address string) *http.Client {
-	client, ok := plugin.clients[hostname(address)]
-	if ok {
-		return client
-	} else {
-		return plugin.defaultClient
-	}
-}
-
-// fetchAllKeys fetches all keys for all issuers in the plugin's configuration.
-func (plugin *JWTPlugin) fetchAllKeys() {
+// fetchAllKeys fetches all keys for all fixed (non-wildcard) issuers in the plugin's configuration.
+// When skipWarm is true, issuers whose shared stores are already populated are skipped
+// (a store populated by an earlier plugin instance survives traefik's middleware rebuilds).
+func (plugin *JWTPlugin) fetchAllKeys(skipWarm bool) {
 	for _, issuer := range plugin.issuers {
-		if !strings.Contains(issuer, "*") {
-			err := plugin.fetchKeys(issuer)
-			if err != nil {
-				log.Printf("failed to fetch keys for %s: %v", issuer, err)
-			}
+		if strings.Contains(issuer, "*") {
+			continue
 		}
-	}
-}
-
-// fetchKeys fetches the keys from the well-known or custom jwks endpoint for the given issuer and adds them to the key map.
-func (plugin *JWTPlugin) fetchKeys(issuer string) error {
-	url, ok := plugin.issuerJWKSEndpoints[issuer]
-	if !ok {
-		configURL := issuer + ".well-known/openid-configuration" // issuer has trailing slash
-		config, err := FetchOpenIDConfiguration(configURL, plugin.clientForURL(configURL))
-
+		store := plugin.store(issuer)
+		if skipWarm && store.warm() {
+			continue
+		}
+		err := store.fetch()
 		if err != nil {
-			// Fall back to direct JWKS URL if OpenID configuration fetch fails
-			url = issuer + ".well-known/jwks.json"
-			logger.Log("WARN", "failed to fetch openid-configuration from url:%s; falling back to direct JWKS URL:%s", configURL, url)
-		} else {
-			logger.Log("INFO", "fetched openid-configuration from url:%s", configURL)
-			url = config.JWKSURI
-		}
-	}
-
-	jwks, err := FetchJWKS(url, plugin.clientForURL(url))
-	if err != nil {
-		return err
-	}
-
-	plugin.lock.Lock()
-	defer plugin.lock.Unlock()
-
-	for keyID, key := range jwks {
-		logger.Log("INFO", "fetched key:%s from url:%s", keyID, url)
-		plugin.keys[keyID] = key
-	}
-
-	plugin.issuerKeys[url] = jwks
-	plugin.purgeKeys()
-
-	return nil
-}
-
-// isIssuedKey returns true if the key exists in the issuerKeys map
-func (plugin *JWTPlugin) isIssuedKey(keyID string) bool {
-	for _, issuerKeys := range plugin.issuerKeys {
-		if _, ok := issuerKeys[keyID]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-// purgeKeys purges all keys from plugin.keys that are not in the issuerKeys map.
-func (plugin *JWTPlugin) purgeKeys() {
-	for keyID := range plugin.keys {
-		if !plugin.isIssuedKey(keyID) {
-			logger.Log("INFO", "key:%s dropped", keyID)
-			delete(plugin.keys, keyID)
+			log.Printf("failed to fetch keys for %s: %v", issuer, err)
 		}
 	}
 }
