@@ -62,6 +62,7 @@ type JWTPlugin struct {
 	issuerJWKSEndpoints    map[string]string       // A map of issuer URLs to hard-coded JWKS endpoints (for non-standard issuers)
 	clients                map[string]*http.Client // A map of clients for specific issuers that skip certificate verification
 	defaultClient          *http.Client            // A default client for fetching keys with certificate verification, optionally with custom root CAs
+	refreshKeysInterval    time.Duration           // The background refresh cadence this middleware requests for its issuers' shared stores
 	require                Requirement             // A map of requirements for each claim (which we treat simply as a Requirement to be validated)
 	keys                   map[string]any          // A map of key IDs to fixed public keys or shared HMAC secrets from the configuration
 	optional               bool                    // If true, requests without a token are allowed but any token provided must still be valid
@@ -198,22 +199,27 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		plugin.keys[kid] = key
 	}
 
-	// Set up the prefetch and refresh intervals and the fetch routine
-	var delayPrefetch time.Duration
-	if config.SkipPrefetch {
-		delayPrefetch = -1
-	} else {
-		delayPrefetch, err = parseDuration(config.DelayPrefetch)
-		if err != nil {
-			return nil, fmt.Errorf("invalid delayPrefetch: %v", err)
-		}
-	}
-	refreshKeysInterval, err := parseDuration(config.RefreshKeysInterval)
+	// Register the known issuers' stores and refresh cadence with the keystore,
+	// either directly or via the prefetch routine.
+	plugin.refreshKeysInterval, err = parseDuration(config.RefreshKeysInterval)
 	if err != nil {
 		return nil, fmt.Errorf("invalid refreshKeysInterval: %v", err)
 	}
-
-	go plugin.fetchRoutine(delayPrefetch, refreshKeysInterval) // this is a noop if neither are required
+	if config.SkipPrefetch {
+		// There is no prefetch, so we schedule arbitrary refreshes directly for all issuers
+		for _, issuer := range plugin.issuers {
+			if !strings.Contains(issuer, "*") {
+				plugin.store(issuer).schedule(plugin.refreshKeysInterval)
+			}
+		}
+	} else {
+		// There is a prefetch, so it will schedule the refreshes after it completes the prefetch
+		delayPrefetch, err := parseDuration(config.DelayPrefetch)
+		if err != nil {
+			return nil, fmt.Errorf("invalid delayPrefetch: %v", err)
+		}
+		go plugin.prefetch(delayPrefetch)
+	}
 
 	return &plugin, nil
 }
@@ -224,22 +230,6 @@ func parseDuration(duration string) (time.Duration, error) {
 		return 0, nil
 	}
 	return time.ParseDuration(duration)
-}
-
-// fetchRoutine prefetches and refreshes keys for all issuers in the plugin's configuration optionally at the given intervals.
-func (plugin *JWTPlugin) fetchRoutine(delayPrefetch time.Duration, refreshKeysInterval time.Duration) {
-	// If we have an initial delay, which may be 0, wait for that before the first fetch
-	if delayPrefetch != -1 {
-		time.Sleep(delayPrefetch)
-		plugin.fetchAllKeys(true)
-	}
-	// If we have a refresh interval, loop forever fetching keys at that interval
-	if refreshKeysInterval != 0 {
-		for {
-			time.Sleep(refreshKeysInterval)
-			plugin.fetchAllKeys(false)
-		}
-	}
 }
 
 // ServeHTTP is the middleware entry point.
@@ -400,7 +390,10 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (any, error) {
 			if ok {
 				issuer = canonicalizeDomain(issuer)
 				if plugin.isValidIssuer(issuer) {
+					// Scheduling here revives a retired refresh and is what gives wildcard-matched
+					// stores, which no prefetch reaches, background refresh at all
 					store := plugin.store(issuer)
+					store.schedule(plugin.refreshKeysInterval)
 					key := store.key(kidString)
 					if key != nil {
 						return key, nil
@@ -439,6 +432,7 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (any, error) {
 
 // store returns the shared key store for the given issuer, binding in the plugin's fetch
 // configuration for the case where the issuer is not yet registered in the keystore.
+// Every call registers the plugin with the store, keeping its background refresh alive.
 func (plugin *JWTPlugin) store(issuer string) *Store {
 	return keystore.store(issuer, plugin.issuerJWKSEndpoints[issuer], plugin.clients, plugin.defaultClient)
 }
@@ -466,22 +460,25 @@ func hostname(address string) string {
 	return parsed.Hostname()
 }
 
-// fetchAllKeys fetches all keys for all fixed (non-wildcard) issuers in the plugin's configuration.
-// When skipWarm is true, issuers whose shared stores are already populated are skipped
+// prefetch fetches keys for all fixed (non-wildcard) issuers in the plugin's configuration after the
+// given delay (which may be 0), skipping issuers whose shared stores are already populated
 // (a store populated by an earlier plugin instance survives traefik's middleware rebuilds).
-func (plugin *JWTPlugin) fetchAllKeys(skipWarm bool) {
+// The plugin's refresh cadence is scheduled after any fetch, deferred to here from plugin build
+// time so that a configured prefetch delay precedes any background fetch.
+func (plugin *JWTPlugin) prefetch(delayPrefetch time.Duration) {
+	time.Sleep(delayPrefetch)
 	for _, issuer := range plugin.issuers {
 		if strings.Contains(issuer, "*") {
 			continue
 		}
 		store := plugin.store(issuer)
-		if skipWarm && store.warm() {
-			continue
+		if !store.warm() {
+			err := store.fetch()
+			if err != nil {
+				log.Printf("failed to fetch keys for %s: %v", issuer, err)
+			}
 		}
-		err := store.fetch()
-		if err != nil {
-			log.Printf("failed to fetch keys for %s: %v", issuer, err)
-		}
+		store.schedule(plugin.refreshKeysInterval)
 	}
 }
 
