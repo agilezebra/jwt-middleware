@@ -46,9 +46,10 @@ var keystore = &KeyStore{stores: make(map[string]*Store)}
 // store returns the Store for the given issuer, creating it if absent, and registers the caller with it.
 // The first caller to reference an issuer defines how its keys are fetched (endpoint and clients);
 // later callers share the store as-is.
-// Every call counts as a registration: the timestamps recorded here are what keep a store's
-// scheduled refresh alive across traefik's middleware rebuilds (see expire); refreshing itself is
-// arranged separately (see schedule).
+// Every call touches the store's registration: any resolution, whether a rebuild's issuer loop or
+// request traffic, is evidence the store is still wanted and keeps its scheduled refresh alive
+// (see expire). The keystore-wide rebuild timestamp is deliberately not touched here: request
+// traffic for one issuer must never age another towards retirement (see rebuilt).
 func (keystore *KeyStore) store(issuer string, endpoint string, clients map[string]*http.Client, defaultClient *http.Client) *Store {
 	keystore.lock.Lock()
 	store, ok := keystore.stores[issuer]
@@ -63,7 +64,6 @@ func (keystore *KeyStore) store(issuer string, endpoint string, clients map[stri
 		}
 		keystore.stores[issuer] = store
 	}
-	keystore.registered = time.Now()
 	keystore.lock.Unlock()
 
 	store.lock.Lock()
@@ -71,6 +71,16 @@ func (keystore *KeyStore) store(issuer string, endpoint string, clients map[stri
 	store.lock.Unlock()
 
 	return store
+}
+
+// rebuilt records that a middleware instance has (re)registered its configured issuers: traefik
+// rebuilds every middleware on every dynamic configuration apply, so a store whose own
+// registration lags this timestamp by more than the grace was rebuilt without and retires
+// (see expire).
+func (keystore *KeyStore) rebuilt() {
+	keystore.lock.Lock()
+	defer keystore.lock.Unlock()
+	keystore.registered = time.Now()
 }
 
 // key returns the cached key for the given key ID from any store whose issuer the caller trusts, or nil.

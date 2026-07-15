@@ -300,6 +300,48 @@ func TestQuietClusterNeverRetires(tester *testing.T) {
 	}
 }
 
+// TestTrafficDoesNotRetirePeers verifies that request-time lookups are not mistaken for
+// configuration rebuilds: only a middleware (re)registering its issuers advances the keystore's
+// rebuild timestamp, so sustained traffic for one issuer can never age another, quieter issuer
+// towards retirement — while still keeping the trafficked store itself registered.
+func TestTrafficDoesNotRetirePeers(tester *testing.T) {
+	private, keys, kid := signingKey(tester)
+	var fetches atomic.Int64
+	server := countingServer(keys, &fetches)
+	defer server.Close()
+	token := signToken(tester, private, kid, server.URL)
+
+	plugin := buildPlugin(tester, fmt.Sprintf(`
+		issuers:
+			- %s
+		skipPrefetch: true`, server.URL))
+	store := storeFor(tester, server.URL)
+
+	keystore.lock.RLock()
+	rebuilt := keystore.registered
+	keystore.lock.RUnlock()
+	store.lock.RLock()
+	registered := store.registered
+	store.lock.RUnlock()
+
+	if code := sendRequest(tester, plugin, token); code != http.StatusOK {
+		tester.Fatalf("expected %d, got %d", http.StatusOK, code)
+	}
+
+	keystore.lock.RLock()
+	advanced := keystore.registered
+	keystore.lock.RUnlock()
+	if !advanced.Equal(rebuilt) {
+		tester.Fatal("request traffic advanced the keystore's rebuild timestamp: traffic for one issuer could retire another")
+	}
+	store.lock.RLock()
+	touched := store.registered
+	store.lock.RUnlock()
+	if !touched.After(registered) {
+		tester.Fatal("request traffic did not keep the trafficked store registered")
+	}
+}
+
 // TestFetchPostponesScheduledRefresh verifies that any fetch restarts the full refresh interval:
 // refreshing means "fetch if not fetched within the interval", not a fixed metronome, so when the
 // scheduled refresh comes due after an intervening fetch it re-arms for the remainder rather than

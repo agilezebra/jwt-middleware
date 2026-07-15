@@ -212,6 +212,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 				plugin.store(issuer).schedule(plugin.refreshKeysInterval)
 			}
 		}
+		keystore.rebuilt()
 	} else {
 		// There is a prefetch, so it will schedule the refreshes after it completes the prefetch
 		delayPrefetch, err := parseDuration(config.DelayPrefetch)
@@ -480,6 +481,7 @@ func (plugin *JWTPlugin) prefetch(delayPrefetch time.Duration) {
 		}
 		store.schedule(plugin.refreshKeysInterval)
 	}
+	keystore.rebuilt()
 }
 
 // parseIssuers splits a mixed []any issuers list into a flat []string of canonicalized issuer names
