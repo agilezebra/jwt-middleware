@@ -1335,6 +1335,19 @@ func TestServeHTTP(tester *testing.T) {
 			Wait:       "1s",
 		},
 		{
+			Name:         "Prefetch with no issuer claim",
+			Expect:       http.StatusOK,
+			ExpectCounts: map[string]int{jwksCalls: 1},
+			Config: `
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
+			Actions:    map[string]string{excludeIss: yes},
+			Wait:       "1s",
+		},
+		{
 			Name:   "Non-existant issuers",
 			Expect: http.StatusOK,
 			Config: `
