@@ -286,6 +286,17 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
+			Name:   "StatusForbidden when iat is not a number (no panic)",
+			Expect: http.StatusForbidden,
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test`,
+			Claims:     `{"aud": "other", "iat": "not-a-number"}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
 			Name:   "template requirement",
 			Expect: http.StatusOK,
 			Config: `
