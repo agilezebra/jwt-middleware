@@ -133,8 +133,8 @@ func environment() map[string]string {
 	environment := os.Environ()
 	variables := make(map[string]string, len(environment))
 	for _, variable := range environment {
-		pair := strings.Split(variable, "=")
-		variables[pair[0]] = pair[1]
+		key, value, _ := strings.Cut(variable, "=")
+		variables[key] = value
 	}
 	return variables
 }

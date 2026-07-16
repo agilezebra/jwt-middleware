@@ -354,6 +354,18 @@ func TestServeHTTP(tester *testing.T) {
 			Environment: map[string]string{"Domain": "app.other.com"},
 		},
 		{
+			Name:   "template requirement from environment variable whose value contains '='",
+			Expect: http.StatusOK,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: "{{.Domain}}"`,
+			Claims:      `{"authority": "tenant=app.example.com"}`,
+			Method:      jwt.SigningMethodHS256,
+			HeaderName:  "Authorization",
+			Environment: map[string]string{"Domain": "tenant=app.example.com"},
+		},
+		{
 			Name:   "template requirement from missing environment variable",
 			Expect: http.StatusForbidden,
 			Config: `
