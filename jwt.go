@@ -377,7 +377,7 @@ func (plugin *JWTPlugin) removeMappedHeaders(request *http.Request) {
 
 // getKey gets the key for the given key ID.
 // It checks first the plugin's configured fixed keys and then the shared key store for the token's issuer
-// If the token has no issuer, it checks all trusted issuers for the key ID.
+// If the token has no matching issuer, it checks all trusted issuers for the key ID.
 // If the key isn't present and the token's iss is valid according to the plugin's configuration, all keys for the iss are fetched and the key is looked up again.
 func (plugin *JWTPlugin) getKey(token *jwt.Token) (any, error) {
 	err := fmt.Errorf("no secret configured")
@@ -420,12 +420,12 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (any, error) {
 				} else {
 					err = fmt.Errorf("issuer %s is not valid", issuer)
 				}
-			} else {
-				// Tokens without an iss claim can still match keys already fetched from any trusted issuer (e.g. by prefetch)
-				key := keystore.key(kidString, plugin.isValidIssuer)
-				if key != nil {
-					return key, nil
-				}
+			}
+
+			// Tokens without a matching iss claim can still match keys already fetched from any trusted issuer (e.g. by prefetch)
+			key = keystore.key(kidString, plugin.isValidIssuer)
+			if key != nil {
+				return key, nil
 			}
 		}
 	}
