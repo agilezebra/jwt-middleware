@@ -133,8 +133,8 @@ func environment() map[string]string {
 	environment := os.Environ()
 	variables := make(map[string]string, len(environment))
 	for _, variable := range environment {
-		pair := strings.Split(variable, "=")
-		variables[pair[0]] = pair[1]
+		key, value, _ := strings.Cut(variable, "=")
+		variables[key] = value
 	}
 	return variables
 }
@@ -334,7 +334,14 @@ func (plugin *JWTPlugin) allowRefresh(claims jwt.MapClaims) bool {
 		return false
 	}
 
-	value, err := iat.(json.Number).Int64()
+	// iat is only a json.Number when the token carries a numeric iat; a malformed
+	// token can present any type here, so we must not assert unconditionally.
+	number, ok := iat.(json.Number)
+	if !ok {
+		return false
+	}
+
+	value, err := number.Int64()
 	return err == nil && time.Now().Unix()-value > plugin.freshness
 }
 

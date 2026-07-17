@@ -286,6 +286,17 @@ func TestServeHTTP(tester *testing.T) {
 			HeaderName: "Authorization",
 		},
 		{
+			Name:   "StatusForbidden when iat is not a number (no panic)",
+			Expect: http.StatusForbidden,
+			Config: `
+				secret: fixed secret
+				require:
+					aud: test`,
+			Claims:     `{"aud": "other", "iat": "not-a-number"}`,
+			Method:     jwt.SigningMethodHS256,
+			HeaderName: "Authorization",
+		},
+		{
 			Name:   "template requirement",
 			Expect: http.StatusOK,
 			Config: `
@@ -341,6 +352,18 @@ func TestServeHTTP(tester *testing.T) {
 			Method:      jwt.SigningMethodHS256,
 			HeaderName:  "Authorization",
 			Environment: map[string]string{"Domain": "app.other.com"},
+		},
+		{
+			Name:   "template requirement from environment variable whose value contains '='",
+			Expect: http.StatusOK,
+			Config: `
+				secret: fixed secret
+				require:
+					authority: "{{.Domain}}"`,
+			Claims:      `{"authority": "tenant=app.example.com"}`,
+			Method:      jwt.SigningMethodHS256,
+			HeaderName:  "Authorization",
+			Environment: map[string]string{"Domain": "tenant=app.example.com"},
 		},
 		{
 			Name:   "template requirement from missing environment variable",
