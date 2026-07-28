@@ -77,6 +77,7 @@ const (
 	invalidJSON        = "invalidJSON"
 	traefikURL         = "traefikURL"
 	customJWKSEndpoint = "customJWKSEndpoint"
+	inlineJWKS         = "inlineJWKS"
 	noIssuerKey        = "noIssuerKey"
 	algorithmConfusion = "algorithmConfusion"
 	yes                = "yes"
@@ -1742,6 +1743,57 @@ func TestServeHTTP(tester *testing.T) {
 			Wait:       "1s",
 		},
 		{
+			Name:         "inline JWKS",
+			Expect:       http.StatusOK,
+			ExpectCounts: map[string]int{jwksCalls: 0},
+			Config: `
+				skipPrefetch: true
+				require:
+					aud: test`,
+			Claims:     `{"aud": "test"}`,
+			Method:     jwt.SigningMethodRS256,
+			HeaderName: "Authorization",
+			Actions:    map[string]string{noAddIsser: yes, inlineJWKS: yes},
+		},
+		{
+			Name:              "malformed inline JWKS is a config error",
+			ExpectPluginError: `issuer "https://example.com/": invalid inline JWKS JSON`,
+			Config: `
+				issuers:
+					- issuer: https://example.com
+					  jwks: '{"keys":'
+				require:
+					aud: test`,
+			Actions: map[string]string{noAddIsser: yes},
+		},
+		{
+			Name:              "inline JWKS without keys is a config error",
+			ExpectPluginError: `issuer "https://example.com/": inline JWKS "keys" must be an array`,
+			Config: `
+				issuers:
+					- issuer: https://example.com
+					  jwks: '{"foo":"bar"}'`,
+			Actions: map[string]string{noAddIsser: yes},
+		},
+		{
+			Name:              "inline JWKS with null keys is a config error",
+			ExpectPluginError: `issuer "https://example.com/": inline JWKS "keys" must be an array`,
+			Config: `
+				issuers:
+					- issuer: https://example.com
+					  jwks: '{"keys":null}'`,
+			Actions: map[string]string{noAddIsser: yes},
+		},
+		{
+			Name:              "inline JWKS with non-array keys is a config error",
+			ExpectPluginError: `issuer "https://example.com/": inline JWKS "keys" must be an array`,
+			Config: `
+				issuers:
+					- issuer: https://example.com
+					  jwks: '{"keys":{}}'`,
+			Actions: map[string]string{noAddIsser: yes},
+		},
+		{
 			Name:              "issuer map entry missing issuer key is a config error",
 			ExpectPluginError: `issuer map entry is missing a valid "issuer" key`,
 			Config: `
@@ -2069,6 +2121,13 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 
 	if test.Actions[useFixedSecret] != yes {
 		addTokenToRequest(test, config, request)
+	}
+	if _, present := test.Actions[inlineJWKS]; present {
+		data, err := json.Marshal(test.Keys)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		config.Issuers = append(config.Issuers, map[string]any{"issuer": server.URL, "jwks": string(data)})
 	}
 
 	// Create the plugin

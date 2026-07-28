@@ -18,7 +18,8 @@ const retirementGrace = time.Minute
 // configuration needed to fetch them.
 type Store struct {
 	issuer        string                  // The issuer whose keys the store holds
-	endpoint      string                  // A hard-coded JWKS endpoint, or empty for OpenID Connect discovery
+	endpoint      string                  // A hard-coded JWKS endpoint or data, or empty for OpenID Connect discovery
+	revision      uint64                  // Incremented whenever endpoint changes
 	clients       map[string]*http.Client // A map of clients for specific hosts that skip certificate verification
 	defaultClient *http.Client            // A default client for fetching keys with certificate verification
 	lock          sync.RWMutex            // Read-write lock for keys, populated, interval, registered, attempted, and deadline
@@ -43,9 +44,22 @@ type KeyStore struct {
 // an unavoidable global that lets keys survive the rebuilds.
 var keystore = &KeyStore{stores: make(map[string]*Store)}
 
+// configure registers an issuer and invalidates its cached keys if its configured JWKS source changed.
+func (keystore *KeyStore) configure(issuer string, endpoint string, clients map[string]*http.Client, defaultClient *http.Client) *Store {
+	store := keystore.store(issuer, endpoint, clients, defaultClient)
+	store.lock.Lock()
+	defer store.lock.Unlock()
+	if store.endpoint != endpoint {
+		store.endpoint = endpoint
+		store.revision++
+		store.keys = make(map[string]any)
+		store.populated = false
+	}
+	return store
+}
+
 // store returns the Store for the given issuer, creating it if absent, and registers the caller with it.
-// The first caller to reference an issuer defines how its keys are fetched (endpoint and clients);
-// later callers share the store as-is.
+// The first caller to reference an issuer defines how its keys are fetched; configure updates that source on rebuilds.
 // Every call touches the store's registration: any resolution, whether a rebuild's issuer loop or
 // request traffic, is evidence the store is still wanted and keeps its scheduled refresh alive
 // (see expire). The keystore-wide rebuild timestamp is deliberately not touched here: request
@@ -129,22 +143,33 @@ func (store *Store) clientFor(address string) *http.Client {
 // The cost is that concurrent misses for the same issuer may fetch more than once; this is a tradeoff between the
 // extra requests (more so to the issuer's server) and the cost to other requests of holding the lock across a fetch.
 func (store *Store) fetch() error {
-	url := store.endpoint
-	if url == "" {
+	store.lock.RLock()
+	source := store.endpoint
+	revision := store.revision
+	store.lock.RUnlock()
+	if source == "" {
 		configURL := store.issuer + ".well-known/openid-configuration" // issuer has trailing slash
 		config, err := FetchOpenIDConfiguration(configURL, store.clientFor(configURL))
 
 		if err != nil {
 			// Fall back to direct JWKS URL if OpenID configuration fetch fails
-			url = store.issuer + ".well-known/jwks.json"
-			logger.Log("WARN", "failed to fetch openid-configuration from url:%s; falling back to direct JWKS URL:%s", configURL, url)
+			source = store.issuer + ".well-known/jwks.json"
+			logger.Log("WARN", "failed to fetch openid-configuration from url:%s; falling back to direct JWKS URL:%s", configURL, source)
 		} else {
 			logger.Log("INFO", "fetched openid-configuration from url:%s", configURL)
-			url = config.JWKSURI
+			source = config.JWKSURI
 		}
 	}
 
-	keys, err := FetchJWKS(url, store.clientFor(url))
+	var client *http.Client
+	var description string
+	if isInlineJWKS(source) {
+		description = "inline JWKS"
+	} else {
+		client = store.clientFor(source)
+		description = source
+	}
+	keys, err := FetchJWKS(source, client)
 	if err != nil {
 		store.lock.Lock()
 		store.attempted = time.Now()
@@ -154,6 +179,9 @@ func (store *Store) fetch() error {
 
 	store.lock.Lock()
 	defer store.lock.Unlock()
+	if store.revision != revision {
+		return nil
+	}
 
 	for kid := range store.keys {
 		if _, ok := keys[kid]; !ok {
@@ -162,7 +190,7 @@ func (store *Store) fetch() error {
 	}
 	for kid := range keys {
 		if _, ok := store.keys[kid]; !ok {
-			logger.Log("INFO", "fetched key:%s from url:%s", kid, url)
+			logger.Log("INFO", "fetched key:%s from source:%s", kid, description)
 		}
 	}
 	store.keys = keys

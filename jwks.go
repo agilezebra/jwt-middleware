@@ -44,21 +44,29 @@ type JSONWebKeySet struct {
 	Keys []JSONWebKey `json:"keys"`
 }
 
-// FetchJWKS fetches the JSON web keys from the given URL and returns a map kid -> key.
-func FetchJWKS(url string, client *http.Client) (map[string]any, error) {
-	response, err := client.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close() //nolint:errcheck
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("got %d from %s", response.StatusCode, url)
+// FetchJWKS loads JSON web keys from the given source and returns a map kid -> key.
+func FetchJWKS(source string, client *http.Client) (map[string]any, error) {
+	var decoder *json.Decoder
+	description := source
+	if isInlineJWKS(source) {
+		decoder = json.NewDecoder(strings.NewReader(source))
+		description = "inline JWKS"
+	} else {
+		response, err := client.Get(source)
+		if err != nil {
+			return nil, err
+		}
+		defer response.Body.Close() //nolint:errcheck
+		if response.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("got %d from %s", response.StatusCode, source)
+		}
+		decoder = json.NewDecoder(response.Body)
 	}
 
 	var jwks JSONWebKeySet
-	err = json.NewDecoder(response.Body).Decode(&jwks)
+	err := decoder.Decode(&jwks)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", url, err)
+		return nil, fmt.Errorf("%s: %w", description, err)
 	}
 	keys := make(map[string]any, len(jwks.Keys))
 	for _, jwk := range jwks.Keys {

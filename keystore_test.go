@@ -1,13 +1,16 @@
 package jwt_middleware
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -114,6 +117,118 @@ func TestKeyCacheSurvivesRebuild(tester *testing.T) {
 	}
 	if count := fetches.Load(); count != 1 {
 		tester.Fatalf("keys were re-fetched on middleware rebuild: %d fetches", count)
+	}
+}
+
+// TestInlineJWKSRotationSurvivesRebuild verifies that changed inline data invalidates an issuer's warm shared store.
+func TestInlineJWKSRotationSurvivesRebuild(tester *testing.T) {
+	oldPrivate, oldKeys, oldKid := signingKey(tester)
+	newPrivate, newKeys, newKid := signingKey(tester)
+	issuer := "https://inline-rotation.example.com"
+	configText := func(keys jose.JSONWebKeySet) string {
+		data, err := json.Marshal(keys)
+		if err != nil {
+			tester.Fatal(err)
+		}
+		return fmt.Sprintf(`
+			issuers:
+				- issuer: %s
+				  jwks: '%s'
+			skipPrefetch: true`, issuer, data)
+	}
+
+	plugin := buildPlugin(tester, configText(oldKeys))
+	oldToken := signToken(tester, oldPrivate, oldKid, issuer)
+	if code := sendRequest(tester, plugin, oldToken); code != http.StatusOK {
+		tester.Fatalf("old data: expected %d, got %d", http.StatusOK, code)
+	}
+
+	rebuilt := buildPlugin(tester, configText(newKeys))
+	newToken := signToken(tester, newPrivate, newKid, issuer)
+	if code := sendRequest(tester, rebuilt, newToken); code != http.StatusOK {
+		tester.Fatalf("new data: expected %d, got %d", http.StatusOK, code)
+	}
+	if code := sendRequest(tester, rebuilt, oldToken); code != http.StatusUnauthorized {
+		tester.Fatalf("retired data: expected %d, got %d", http.StatusUnauthorized, code)
+	}
+}
+
+// TestInlineJWKSDoesNotParseSourceAsURL verifies that inline data bypasses URL-specific client selection.
+func TestInlineJWKSDoesNotParseSourceAsURL(tester *testing.T) {
+	_, keys, kid := signingKey(tester)
+	data, err := json.Marshal(keys)
+	if err != nil {
+		tester.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	previousOutput := log.Writer()
+	log.SetOutput(&output)
+	tester.Cleanup(func() { log.SetOutput(previousOutput) })
+
+	localKeystore := &KeyStore{stores: make(map[string]*Store)}
+	store := localKeystore.configure("https://inline.example.com/", string(data), nil, &http.Client{})
+	if err := store.fetch(); err != nil {
+		tester.Fatal(err)
+	}
+	if store.key(kid) == nil {
+		tester.Fatal("inline source did not populate the store")
+	}
+	if strings.Contains(output.String(), "failed to parse url") {
+		tester.Fatalf("inline source was parsed as a URL: %s", output.String())
+	}
+}
+
+// TestFetchDiscardsKeysAfterSourceCycles verifies that an in-flight fetch cannot populate a store after A -> B -> A reconfiguration.
+func TestFetchDiscardsKeysAfterSourceCycles(tester *testing.T) {
+	_, oldKeys, oldKid := signingKey(tester)
+	_, newKeys, newKid := signingKey(tester)
+	oldData, err := json.Marshal(oldKeys)
+	if err != nil {
+		tester.Fatal(err)
+	}
+	newData, err := json.Marshal(newKeys)
+	if err != nil {
+		tester.Fatal(err)
+	}
+
+	requestStarted := make(chan struct{})
+	releaseResponse := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		close(requestStarted)
+		<-releaseResponse
+		fmt.Fprintln(response, string(oldData)) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	localKeystore := &KeyStore{stores: make(map[string]*Store)}
+	issuer := "https://source-change.example.com/"
+	store := localKeystore.configure(issuer, server.URL, nil, &http.Client{})
+	fetchFinished := make(chan error)
+	go func() {
+		fetchFinished <- store.fetch()
+	}()
+
+	<-requestStarted
+	localKeystore.configure(issuer, string(newData), nil, &http.Client{})
+	localKeystore.configure(issuer, server.URL, nil, &http.Client{})
+	close(releaseResponse)
+	if err := <-fetchFinished; err != nil {
+		tester.Fatal(err)
+	}
+	if store.warm() || store.key(oldKid) != nil {
+		tester.Fatal("fetch from an earlier source revision populated the store")
+	}
+
+	localKeystore.configure(issuer, string(newData), nil, &http.Client{})
+	if err := store.fetch(); err != nil {
+		tester.Fatal(err)
+	}
+	if store.key(newKid) == nil {
+		tester.Fatal("replacement source did not populate the store")
+	}
+	if store.key(oldKid) != nil {
+		tester.Fatal("replaced source key remained in the store")
 	}
 }
 
