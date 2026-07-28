@@ -1987,11 +1987,11 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 		defer lock.Unlock()
 		test.Counts[jwksCalls]++
 
-		if _, ok := test.Actions[keysBadBody]; ok {
+		if _, present := test.Actions[keysBadBody]; present {
 			response.Header().Add("Content-Length", "1")
 			return
 		}
-		if status, ok := test.Actions[keysServerStatus]; ok {
+		if status, present := test.Actions[keysServerStatus]; present {
 			status, err := strconv.Atoi(status)
 			if err != nil {
 				panic(err)
@@ -2018,11 +2018,11 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 	}
 	mux.HandleFunc("/.well-known/jwks.json", jwksHandler)
 	mux.HandleFunc("/.well-known/openid-configuration", func(response http.ResponseWriter, request *http.Request) {
-		if _, ok := test.Actions[configBadBody]; ok {
+		if _, present := test.Actions[configBadBody]; present {
 			response.Header().Add("Content-Length", "1")
 			return
 		}
-		if status, ok := test.Actions[configServerStatus]; ok {
+		if status, present := test.Actions[configServerStatus]; present {
 			status, err := strconv.Atoi(status)
 			if err != nil {
 				panic(err)
@@ -2033,7 +2033,7 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 			response.WriteHeader(http.StatusOK)
 		}
 		var url string
-		if _, ok := test.Actions[keysBadURL]; ok {
+		if _, present := test.Actions[keysBadURL]; present {
 			url = "https://dummy.example.com"
 		} else {
 			url = test.URL
@@ -2081,7 +2081,7 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 		return nil, nil, nil, err
 	}
 
-	if _, ok := test.Actions[rotateKey]; ok {
+	if _, present := test.Actions[rotateKey]; present {
 		// Similate a key rotation by ...
 		plugin.ServeHTTP(httptest.NewRecorder(), request) // causing the plugin to fetch the existing key
 		lock.Lock()
@@ -2095,7 +2095,7 @@ func setup(test *Test) (http.Handler, *http.Request, *httptest.Server, error) {
 
 func addTokenToRequest(test *Test, config *Config, request *http.Request) {
 	// Set up request
-	if _, ok := test.Actions[traefikURL]; ok {
+	if _, present := test.Actions[traefikURL]; present {
 		request.URL.Host = ""
 	}
 
@@ -2161,7 +2161,7 @@ func createTokenAndSaveKey(test *Test, config *Config) string {
 	var err error
 	switch method {
 	case jwt.SigningMethodHS256, jwt.SigningMethodHS384, jwt.SigningMethodHS512:
-		if confusionType, ok := test.Actions[algorithmConfusion]; ok {
+		if confusionType, present := test.Actions[algorithmConfusion]; present {
 			// Algorithm confusion attack: generate asymmetric key pair, set public key as fixed secret,
 			// but sign with the public key bytes as HMAC secret
 			switch confusionType {
