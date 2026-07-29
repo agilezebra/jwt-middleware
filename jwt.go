@@ -59,7 +59,7 @@ type JWTPlugin struct {
 	parser                 *jwt.Parser             // A JWT parser instance, which we use for all token parsing
 	secret                 any                     // A single anonymous fixed public key or HMAC secret, or nil
 	issuers                []string                // A list of valid issuers that we trust to fetch keys from
-	issuerJWKSEndpoints    map[string]string       // A map of issuer URLs to hard-coded JWKS endpoints (for non-standard issuers)
+	issuerJWKS             map[string]string       // A map of issuer URLs to hard-coded JWKS endpoints or data (for non-standard issuers)
 	clients                map[string]*http.Client // A map of clients for specific issuers that skip certificate verification
 	defaultClient          *http.Client            // A default client for fetching keys with certificate verification, optionally with custom root CAs
 	refreshKeysInterval    time.Duration           // The background refresh cadence this middleware requests for its issuers' shared stores
@@ -156,7 +156,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		config.RootCAs[index] = pem
 	}
 
-	issuers, issuerJWKSEndpoints, err := parseIssuers(config.Issuers)
+	issuers, issuerJWKS, err := parseIssuers(config.Issuers)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		parser:                 jwt.NewParser(jwt.WithValidMethods(config.ValidMethods), jwt.WithJSONNumber()),
 		secret:                 key,
 		issuers:                issuers,
-		issuerJWKSEndpoints:    issuerJWKSEndpoints,
+		issuerJWKS:             issuerJWKS,
 		clients:                NewClients(config.InsecureSkipVerify),
 		defaultClient:          NewDefaultClient(config.RootCAs, true),
 		require:                NewRequirement(config.Require, "$and"),
@@ -205,13 +205,16 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 	if err != nil {
 		return nil, fmt.Errorf("invalid refreshKeysInterval: %v", err)
 	}
-	if config.SkipPrefetch {
-		// There is no prefetch, so we schedule arbitrary refreshes directly for all issuers
-		for _, issuer := range plugin.issuers {
-			if !strings.Contains(issuer, "*") {
-				plugin.store(issuer).schedule(plugin.refreshKeysInterval)
-			}
+	for _, issuer := range plugin.issuers {
+		if strings.Contains(issuer, "*") {
+			continue
 		}
+		store := keystore.configure(issuer, plugin.issuerJWKS[issuer], plugin.clients, plugin.defaultClient)
+		if config.SkipPrefetch {
+			store.schedule(plugin.refreshKeysInterval)
+		}
+	}
+	if config.SkipPrefetch {
 		keystore.rebuilt()
 	} else {
 		// There is a prefetch, so it will schedule the refreshes after it completes the prefetch
@@ -442,7 +445,7 @@ func (plugin *JWTPlugin) getKey(token *jwt.Token) (any, error) {
 // configuration for the case where the issuer is not yet registered in the keystore.
 // Every call registers the plugin with the store, keeping its background refresh alive.
 func (plugin *JWTPlugin) store(issuer string) *Store {
-	return keystore.store(issuer, plugin.issuerJWKSEndpoints[issuer], plugin.clients, plugin.defaultClient)
+	return keystore.store(issuer, plugin.issuerJWKS[issuer], plugin.clients, plugin.defaultClient)
 }
 
 // isValidIssuer returns true if the issuer is allowed by the Issers configuration.
@@ -491,11 +494,15 @@ func (plugin *JWTPlugin) prefetch(delayPrefetch time.Duration) {
 	keystore.rebuilt()
 }
 
-// parseIssuers splits a mixed []any issuers list into a flat []string of canonicalized issuer names
-// and a map of issuer name -> hard-coded JWKS endpoint for entries that specify one.
+// isInlineJWKS returns true if the given string is a JWKS document
+func isInlineJWKS(jwks string) bool {
+	return strings.HasPrefix(jwks, "{")
+}
+
+// parseIssuers splits a mixed []any issuers list into canonicalized issuer names and configured JWKS sources.
 func parseIssuers(raw []any) ([]string, map[string]string, error) {
 	issuers := make([]string, 0, len(raw))
-	endpoints := make(map[string]string)
+	issuerJWKS := make(map[string]string)
 	for _, entry := range raw {
 		switch value := entry.(type) {
 		case string:
@@ -508,11 +515,34 @@ func parseIssuers(raw []any) ([]string, map[string]string, error) {
 			issuer = canonicalizeDomain(issuer)
 			issuers = append(issuers, issuer)
 			if jwks, ok := value["jwks"].(string); ok && jwks != "" {
-				endpoints[issuer] = jwks
+				if isInlineJWKS(jwks) {
+					if err := validateInlineJWKS(jwks); err != nil {
+						return nil, nil, fmt.Errorf("issuer %q: %w", issuer, err)
+					}
+				}
+				issuerJWKS[issuer] = jwks
 			}
 		}
 	}
-	return issuers, endpoints, nil
+	return issuers, issuerJWKS, nil
+}
+
+// validateInlineJWKS checks that inline data is a JWKS document with an array-valued keys member.
+func validateInlineJWKS(data string) error {
+	var document struct {
+		Keys json.RawMessage `json:"keys"`
+	}
+	if err := json.Unmarshal([]byte(data), &document); err != nil {
+		return fmt.Errorf("invalid inline JWKS JSON")
+	}
+	if len(document.Keys) == 0 || bytes.Equal(bytes.TrimSpace(document.Keys), []byte("null")) {
+		return fmt.Errorf("inline JWKS \"keys\" must be an array")
+	}
+	var keys []json.RawMessage
+	if err := json.Unmarshal(document.Keys, &keys); err != nil {
+		return fmt.Errorf("inline JWKS \"keys\" must be an array")
+	}
+	return nil
 }
 
 // canonicalizeDomain adds a trailing slash to the domain

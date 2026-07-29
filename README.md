@@ -23,7 +23,7 @@ experimental:
   plugins:
     jwt:
       moduleName: github.com/agilezebra/jwt-middleware
-      version: v1.5.1
+      version: v1.6.0
 ```
 
 1b. or with command-line options:
@@ -32,7 +32,7 @@ experimental:
 command:
   ...
   - "--experimental.plugins.jwt.modulename=github.com/agilezebra/jwt-middleware"
-  - "--experimental.plugins.jwt.version=v1.5.1"
+  - "--experimental.plugins.jwt.version=v1.6.0"
 ```
 
 ### Configure
@@ -113,7 +113,7 @@ The plugin supports the following configuration options.
 
 Name | Description
 ---- | ----
-`issuers` | A list of trusted issuers to fetch keys (JWKS) from. Keys will be prefetched from these issuers on startup (unless `skipPrefetch` is set). If an inbound request presents a token signed with a key (`kid`) that is not known and its `iss` claim matches one of the `issuers`, the plugin will refresh the keys for that issuer. On each fetch, any keys previously fetched from the issuer that are no longer retrieved will be removed from the issuer's cache. Fetched keys are cached per issuer in stores shared by all middlewares in the traefik process, so a busy dynamic configuration (e.g. a Kubernetes cluster with frequent changes), which rebuilds middlewares on every update, does not cause the keys to be re-fetched: prefetch is skipped for issuers whose keys are already cached. Keys provided in `secrets` (below) are always per-middleware and take precedence over any fetched keys. fnmatch-style wildcards are supported for `issuers` to accommodate some multitenancy scenarios (e.g. `https://*.example.com`). It is not recommended to use wildcard `issuers` unless you understand the implication that any webserver on your domain could be used to spoof a JWK endpoint and you have full confidence in what is running on all servers within the domain in question. Any issuer's entry may alternatively be a map with keys `issuer` (the issuer URL, matched against the token's `iss` claim) and `jwks` specifying a hard-coded JWKS endpoint URL. When `jwks` is provided for an entry, OpenID Connect discovery (`.well-known/openid-configuration`) is skipped entirely and the specified URL is used directly to fetch the public keys. This is required for providers that publish their JWKS at a fixed URL that is different from the issuer URL and do not host an OpenID configuration document (e.g. Firebase App Check).
+`issuers` | A list of trusted issuers to fetch keys (JWKS) from. Keys will be prefetched from these issuers on startup (unless `skipPrefetch` is set). If an inbound request presents a token signed with a key (`kid`) that is not known and its `iss` claim matches one of the `issuers`, the plugin will refresh the keys for that issuer. On each fetch, any keys previously fetched from the issuer that are no longer retrieved will be removed from the issuer's cache. Fetched keys are cached per issuer in stores shared by all middlewares in the traefik process, so a busy dynamic configuration (e.g. a Kubernetes cluster with frequent changes), which rebuilds middlewares on every update, does not cause the keys to be re-fetched: prefetch is skipped for issuers whose keys are already cached. Keys provided in `secrets` (below) are always per-middleware and take precedence over any fetched keys. fnmatch-style wildcards are supported for `issuers` to accommodate some multitenancy scenarios (e.g. `https://*.example.com`). It is not recommended to use wildcard `issuers` unless you understand the implication that any webserver on your domain could be used to spoof a JWK endpoint and you have full confidence in what is running on all servers within the domain in question. Any issuer's entry may alternatively be a map with `issuer` (the issuer URL, matched against the token's `iss` claim) and `jwks`, containing either a hard-coded JWKS endpoint URL or a raw JWKS JSON document. Both forms skip OpenID Connect discovery and use the normal per-issuer shared cache. The first form is required for providers that publish their JWKS at a fixed URL that is different from the issuer URL and do not host an OpenID configuration document (e.g. Firebase App Check). Inline JSON, identified by a leading `{` and validated when the configuration is loaded, is for issuers that distribute their public JWKS out-of-band and have no reachable JWKS URL.
 `secret` | A shared HMAC secret or a fixed public key to use for signature validation. A fixed secret may be used in conjunction with `issuers` to combine static and dynamic keys. This can be useful when transitioning from earlier systems or for machine-to-machine tokens signed with internal keys. Note that if a dynamic key is not matched for a presented token's key, but a static secret is configured, the static secret will be tried as a fallback key. If this secret is not of the correct type for the presented key, an error such as `token signature is invalid: key is of invalid type` will be returned to the caller, which may be confusing.
 `secrets` | A map of kid -> secret. As `secret` above, these may be used in combination with `issuers`. Any secrets provided here will be preloaded into the plugin's cache. Any presented tokens with matching `kid`s will therefore not need to have the key fetched from the issuer. This mechanism is preferred over a single anonymous `secret` when a `kid` is used, as it avoids the fallback invalid type message described above.
 `secretBase64Encoded` | The value(s) in `secret` and/or `secrets` are base64-encoded and should be decoded before use. If this is specified, all values in `secret` and/or `secrets` are decoded; there is no mechanism to specify that only one is encoded.
@@ -422,6 +422,23 @@ http:
               jwks: https://firebaseappcheck.googleapis.com/v1/jwks
           require:
             aud: projects/123456789
+```
+
+#### Inline JWKS
+
+For issuers that distribute their public JWKS out-of-band and have no reachable JWKS URL, provide the raw document with `jwks`:
+
+```yaml
+http:
+  middlewares:
+    secure-app:
+      plugin:
+        jwt:
+          issuers:
+            - issuer: https://internal.example.com
+              jwks: '{"keys":[{"kty":"RSA","kid":"732cfcf2ef933de7c...","use":"sig","alg":"RS256","n":"3kAkRYpdQoKlMMbc1...","e":"AQAB"}]}'
+          require:
+            aud: internal.example.com
 ```
 
 ## Philosophy
